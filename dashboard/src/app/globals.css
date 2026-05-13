@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body { background: #0a0a0b; color: #f5f5f7; }
+  body { font-feature-settings: "ss01", "cv11"; -webkit-font-smoothing: antialiased; }
+  * { border-color: theme("colors.border.DEFAULT"); }
+  ::selection { background: rgba(61,220,151,0.25); }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-border bg-bg-card shadow-card;
+  }
+  .card-h {
+    @apply transition-colors hover:border-border-strong hover:bg-bg-hover;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-border bg-bg-elev px-2 py-0.5 text-xs text-ink-muted;
+  }
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-lg border border-border bg-bg-elev px-3 py-1.5 text-sm text-ink hover:bg-bg-hover hover:border-border-strong transition-colors;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-black hover:bg-accent-dim transition-colors;
+  }
+  .row-h {
+    @apply hover:bg-bg-hover transition-colors;
+  }
+  .skeleton {
+    @apply bg-gradient-to-r from-bg-elev via-bg-hover to-bg-elev bg-[length:200%_100%] animate-shimmer rounded;
+  }
+}
+
+/* Recharts dark-mode polish */
+.recharts-cartesian-axis-tick-value { fill: #6b6b75 !important; font-size: 11px; }
+.recharts-cartesian-grid line { stroke: #1f1f25 !important; }
+.recharts-tooltip-wrapper { outline: none !important; }

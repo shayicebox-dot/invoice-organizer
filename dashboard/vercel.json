@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/sync?secret=$CRON_SECRET&days=2", "schedule": "*/15 * * * *" },
+    { "path": "/api/insights/generate?secret=$CRON_SECRET", "schedule": "0 7 * * *" }
+  ]
+}
