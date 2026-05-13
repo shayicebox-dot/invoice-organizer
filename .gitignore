@@ -1,0 +1,20 @@
+# OAuth secrets — never commit
+credentials.json
+token.json
+client_secret*.json
+
+# Downloaded invoices
+invoices/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
