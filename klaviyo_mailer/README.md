@@ -3,8 +3,12 @@
 כלי שמייצר תוכן אימייל שיווקי באמצעות **Claude**, ממיר אותו ל-HTML מוכן לשליחה,
 מעלה אותו כתבנית ב-**Klaviyo**, ויוצר קמפיין או תבנית לאוטומציה (flow).
 
-מתאים לבניית **ניוזלטרים/קמפיינים** וגם **אוטומציות** (עגלה נטושה וכו') באופן קבוע
-עבור מותג/מוצר — למשל `kickbox`.
+מתאים לבניית **ניוזלטרים/קמפיינים** וגם **אוטומציות** (עגלה נטושה וכו') באופן קבוע.
+
+מוגדר כברירת מחדל למותג **Kicksbox** ([kicksboxx.com](https://kicksboxx.com)) —
+קופסאות תצוגה/אחסון אקריליק שקופות לאספני סניקרס. ה‑AI מקבל "תקציר מותג" מובנה
+(חומר, מארזים, חוסם UV וכו') כדי שהתוכן יהיה מדויק. ברירת מחדל לשפה: **אנגלית**
+(שוק ארה"ב). אפשר לשנות הכל במשתני סביבה (ראה `.env.example`).
 
 > ⚠️ כברירת מחדל קמפיין נוצר כ**טיוטה** ולא נשלח. השליחה דורשת אישור מפורש
 > (`--send-now` / `--schedule`) — כך לא נשלח אימייל לרשימה בטעות.
@@ -46,10 +50,12 @@ python -m klaviyo_mailer.cli flows
 
 # יצירת טיוטת קמפיין ניוזלטר לרשימה לפי שם
 python -m klaviyo_mailer.cli campaign \
-    --topic "מבצע סוף עונה על קו ה-kickbox" --list-name "Newsletter"
+    --topic "New drop: the 20-Box Favorite for growing collections" \
+    --list-name "Newsletter"
 
 # קמפיין מתוזמן
-python -m klaviyo_mailer.cli campaign --topic "..." \
+python -m klaviyo_mailer.cli campaign \
+    --topic "Protect your grails from UV and dust" \
     --list-id ABC123 --schedule "2026-06-25T09:00:00"
 
 # שליחה מיידית (זהירות!)
@@ -57,11 +63,14 @@ python -m klaviyo_mailer.cli campaign --topic "..." --list-id ABC123 --send-now
 
 # תבנית לאוטומציה (עגלה נטושה) — מחברים אותה ל-flow ב-Klaviyo
 python -m klaviyo_mailer.cli flow-template \
-    --topic "תזכורת עגלה נטושה ל-kickbox" --email-type "abandoned cart"
+    --topic "You left the Full Wall in your cart" --email-type "abandoned cart"
 ```
 
-ה-AI כותב נושא, preview text, כותרת, גוף ו-CTA. ה-HTML מרונדר מתבנית קבועה
-(תומכת RTL לעברית) כך שהמבנה תמיד תקין.
+ה-AI כותב נושא, preview text, כותרת, גוף ו-CTA — לפי תקציר המותג של Kicksbox.
+ה-HTML מרונדר מתבנית קבועה (תומכת גם RTL אם משנים שפה לעברית) כך שהמבנה תמיד תקין.
+
+לכתיבה בעברית: `EMAIL_LANGUAGE=he`. לשינוי מותג/מוצר: `BRAND_NAME`, `PRODUCT_NAME`,
+`BRAND_BRIEF`.
 
 ## 4. הרצה קבועה (ניוזלטר אוטומטי)
 
@@ -70,7 +79,7 @@ python -m klaviyo_mailer.cli flow-template \
 ```cron
 0 9 1 * * cd /path/to/repo && set -a && . klaviyo_mailer/.env && set +a && \
   .venv/bin/python -m klaviyo_mailer.cli campaign \
-  --topic "ניוזלטר חודשי - חידושים ומבצעים על kickbox" --list-name "Newsletter"
+  --topic "Monthly drop: new bundles and collector tips" --list-name "Newsletter"
 ```
 
 ### GitHub Actions (שבועי)
@@ -87,14 +96,14 @@ jobs:
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       KLAVIYO_API_KEY: ${{ secrets.KLAVIYO_API_KEY }}
-      FROM_EMAIL: hello@yourdomain.com
+      FROM_EMAIL: hello@kicksboxx.com
       KLAVIYO_LIST_NAME: Newsletter
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install -r klaviyo_mailer/requirements.txt
-      - run: python -m klaviyo_mailer.cli campaign --topic "ניוזלטר שבועי - kickbox"
+      - run: python -m klaviyo_mailer.cli campaign --topic "Weekly drop from Kicksbox"
 ```
 
 מומלץ להשאיר את הריצה האוטומטית במצב טיוטה (ברירת המחדל) ולשלוח ידנית אחרי

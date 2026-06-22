@@ -75,31 +75,37 @@ def generate_email(
     *,
     brand: str,
     product: str,
-    language: str = "he",
+    language: str = "en",
     tone: str = "warm, energetic, trustworthy",
     audience: str = "existing and prospective customers",
     email_type: str = "newsletter",
+    brand_brief: str | None = None,
     cta_url: str | None = None,
     model: str = MODEL,
 ) -> EmailContent:
     """Generate marketing-email copy for ``topic``.
 
     ``email_type`` is a free-text hint (e.g. ``"newsletter"``, ``"promotion"``,
-    ``"abandoned cart"``) that steers the copy.
+    ``"abandoned cart"``) that steers the copy. ``brand_brief`` is optional
+    background the model uses to keep the copy accurate and on-brand.
     """
     client = anthropic.Anthropic()
 
     lang_name = {"he": "Hebrew", "en": "English"}.get(language, language)
+    brief_line = f"Brand background: {brand_brief}\n" if brand_brief else ""
     user_prompt = (
         f"Write a {email_type} marketing email in {lang_name}.\n"
         f"Brand: {brand}\n"
         f"Product / category: {product}\n"
+        f"{brief_line}"
         f"Topic / brief: {topic}\n"
         f"Audience: {audience}\n"
         f"Tone: {tone}\n"
         "Produce: a subject line, preview text, a headline, 2-4 short body "
         "blocks (heading/paragraph), and a short call-to-action label. "
-        "Center everything on the product/category above."
+        "Center everything on the product/category above. Only make claims "
+        "supported by the brand background; do not invent prices or discounts "
+        "unless the topic states them."
     )
 
     resp = client.messages.create(
