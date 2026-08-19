@@ -51,3 +51,10 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# Local secrets — never commit
+# Service account keys, provider credentials, anything under secrets/.
+/secrets/
+secrets/
+*service-account*.json
+*-key.json
