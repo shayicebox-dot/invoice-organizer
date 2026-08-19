@@ -222,8 +222,31 @@ describe("calculateCosts", () => {
     assert.equal(isFixedCategory("packaging"), false);
   });
 
-  it("marks every section mock when nothing is configured", () => {
-    const result = calculateCosts(emptySettings(), [volume()]);
+  it("defaults COGS to Shopify's own cost per item", () => {
+    // Not a guess: it is data the merchant already maintains in Shopify.
+    assert.equal(emptySettings().cogs.mode, "shopify_cost_per_item");
+  });
+
+  it("marks the untouched sections mock, and COGS incomplete without Shopify data", () => {
+    const result = calculateCosts(emptySettings(), [volume({ shopifyCogs: null })]);
+
+    // COGS is configured by default, so it is not mock — but with no cost data
+    // from Shopify it must report incomplete rather than a number.
+    assert.equal(result.sources.cogs, "incomplete");
+    assert.equal(result.sources.shipping, "mock");
+    assert.equal(result.sources.paymentFees, "mock");
+    assert.equal(result.sources.klaviyo, "mock");
+    assert.equal(result.sources.otherExpenses, "mock");
+
+    // Nothing is invented: every computed line is zero.
+    assert.equal(toMinor(result.days[0].cogs), 0);
+    assert.equal(toMinor(result.days[0].shipping), 0);
+    assert.equal(toMinor(result.days[0].paymentFees), 0);
+  });
+
+  it("marks every section mock when COGS is explicitly turned off too", () => {
+    const settings = { ...emptySettings(), cogs: { mode: "not_configured" as const, skuCosts: [] } };
+    const result = calculateCosts(settings, [volume()]);
     assert.deepEqual(result.sources, {
       cogs: "mock",
       shipping: "mock",
@@ -232,10 +255,6 @@ describe("calculateCosts", () => {
       otherExpenses: "mock",
     });
     assert.equal(result.issues.length, 5, "one issue per unconfigured section");
-    // Nothing is invented: every computed line is zero.
-    assert.equal(toMinor(result.days[0].cogs), 0);
-    assert.equal(toMinor(result.days[0].shipping), 0);
-    assert.equal(toMinor(result.days[0].paymentFees), 0);
   });
 
   it("raises an issue when per-SKU costing has no line-item data", () => {

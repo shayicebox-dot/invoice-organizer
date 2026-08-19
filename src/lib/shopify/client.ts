@@ -41,6 +41,15 @@ export class ShopifyError extends Error {
 interface CachedToken {
   accessToken: string;
   expiresAt: number;
+  /**
+   * Scopes Shopify actually granted, straight from the token response.
+   *
+   * The client credentials grant sends no scope parameter — an app gets
+   * whatever its configuration in Shopify allows. So this is the only way to
+   * know what the token can do, and it turns "the API said no" into "the app
+   * is missing read_inventory".
+   */
+  scopes: string[];
 }
 
 /** Keyed by store domain so a changed domain cannot reuse another shop's token. */
@@ -98,7 +107,11 @@ async function requestAccessToken(config: ShopifyConfig): Promise<CachedToken> {
     );
   }
 
-  const payload = (await response.json()) as { access_token?: string; expires_in?: number };
+  const payload = (await response.json()) as {
+    access_token?: string;
+    expires_in?: number;
+    scope?: string;
+  };
   if (!payload.access_token) {
     throw new ShopifyError("Shopify returned no access token.", "auth", response.status);
   }
@@ -108,7 +121,12 @@ async function requestAccessToken(config: ShopifyConfig): Promise<CachedToken> {
       ? payload.expires_in * 1000
       : FALLBACK_TTL_MS;
 
-  return { accessToken: payload.access_token, expiresAt: Date.now() + ttlMs };
+  const scopes = (payload.scope ?? "")
+    .split(",")
+    .map((scope) => scope.trim())
+    .filter((scope) => scope !== "");
+
+  return { accessToken: payload.access_token, expiresAt: Date.now() + ttlMs, scopes };
 }
 
 async function getToken(config: ShopifyConfig, forceRefresh = false): Promise<CachedToken> {
@@ -214,6 +232,26 @@ export async function shopifyGraphQL<T>(
   }
 
   return payload.data;
+}
+
+/**
+ * The scopes Shopify granted this app, as reported when the token was issued.
+ *
+ * Returns an empty array if Shopify did not report any — some responses omit
+ * the field — so an empty result means "unknown", not "none". Callers must not
+ * treat it as proof a scope is absent.
+ */
+export async function getGrantedScopes(): Promise<string[]> {
+  const config = getShopifyConfig();
+  if (!config) throw new ShopifyError("Shopify is not configured.", "config");
+  return (await getToken(config)).scopes;
+}
+
+/** Whether a scope is present, when Shopify told us. `null` means unknown. */
+export async function hasScope(scope: string): Promise<boolean | null> {
+  const scopes = await getGrantedScopes();
+  if (scopes.length === 0) return null;
+  return scopes.includes(scope);
 }
 
 /** Test hook — drops cached tokens so the next call re-authenticates. */

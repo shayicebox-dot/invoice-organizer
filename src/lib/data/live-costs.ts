@@ -22,7 +22,8 @@ import type { BusinessCostSettings, CostIssue, CostSourceMap } from "../business
 import { netSales } from "../finance";
 import { getShopifyConfig } from "../shopify/config";
 import { fetchShopInfo } from "../shopify/orders";
-import { fetchShopifySkuUnits } from "../shopify/line-items";
+import { type ShopifyCogsResult, fetchShopifyCogs } from "../shopify/cogs";
+import { getGrantedScopes } from "../shopify/client";
 
 export interface BusinessCostStatus {
   configured: boolean;
@@ -49,13 +50,16 @@ export const COSTS_NOT_CONFIGURED: BusinessCostStatus = {
   updatedAt: new Date(0).toISOString(),
 };
 
-interface SkuUnitsCache {
+interface CogsCache {
   fetchedAt: number;
-  days: Awaited<ReturnType<typeof fetchShopifySkuUnits>>["days"];
+  result: ShopifyCogsResult;
 }
 
 const TTL_MS = 60_000;
-const skuCache = new Map<string, SkuUnitsCache>();
+const cogsCache = new Map<string, CogsCache>();
+
+/** Scopes the per-SKU costing query needs beyond the revenue integration. */
+const COGS_SCOPES = ["read_products", "read_inventory"] as const;
 
 /** Whether the configured COGS mode needs Shopify line items at all. */
 function needsLineItems(settings: BusinessCostSettings): boolean {
@@ -67,35 +71,47 @@ function needsLineItems(settings: BusinessCostSettings): boolean {
  * missing scope or an API failure degrades COGS to "incomplete" rather than
  * breaking the page.
  */
-async function loadSkuUnits(
+async function loadShopifyCogs(
   start: ISODate,
   end: ISODate,
-): Promise<{ days: SkuUnitsCache["days"] | null; error: string | null }> {
+): Promise<{ result: ShopifyCogsResult | null; error: string | null }> {
   if (!getShopifyConfig()) {
-    return { days: null, error: "Shopify is not connected, so units sold cannot be costed." };
+    return { result: null, error: "Shopify is not connected, so units sold cannot be costed." };
   }
 
   const key = `${start}:${end}`;
-  const cached = skuCache.get(key);
+  const cached = cogsCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < TTL_MS) {
-    return { days: cached.days, error: null };
+    return { result: cached.result, error: null };
   }
 
   try {
     const shop = await fetchShopInfo();
-    const { days } = await fetchShopifySkuUnits(start, end, shop);
-    skuCache.set(key, { fetchedAt: Date.now(), days });
-    return { days, error: null };
+    const result = await fetchShopifyCogs(start, end, shop);
+    cogsCache.set(key, { fetchedAt: Date.now(), result });
+    return { result, error: null };
   } catch (error) {
     const message =
-      error instanceof Error
-        ? error.message
-        : "Could not read Shopify line items for per-SKU costing.";
-    // read_products and read_inventory are the usual cause; say so plainly.
-    return {
-      days: null,
-      error: `${message} Per-SKU costing needs the read_products and read_inventory scopes.`,
-    };
+      error instanceof Error ? error.message : "Could not read Shopify line items for costing.";
+
+    // Name the missing scope rather than the symptom. The token response tells
+    // us what was granted, so this is a fact and not a guess.
+    let scopeNote = "";
+    try {
+      const granted = await getGrantedScopes();
+      if (granted.length > 0) {
+        const missing = COGS_SCOPES.filter((scope) => !granted.includes(scope));
+        if (missing.length > 0) {
+          scopeNote = ` The Shopify app is missing ${missing.join(" and ")}; re-authorize it with those scopes.`;
+        }
+      } else {
+        scopeNote = ` Costing needs the ${COGS_SCOPES.join(" and ")} scopes.`;
+      }
+    } catch {
+      scopeNote = ` Costing needs the ${COGS_SCOPES.join(" and ")} scopes.`;
+    }
+
+    return { result: null, error: `${message}${scopeNote}` };
   }
 }
 
@@ -128,23 +144,28 @@ export async function applyBusinessCosts(
     };
   }
 
-  const skuResult = needsLineItems(settings)
-    ? await loadSkuUnits(start, end)
-    : { days: null, error: null };
+  const cogsResult = needsLineItems(settings)
+    ? await loadShopifyCogs(start, end)
+    : { result: null, error: null };
 
-  const skuByDate = new Map((skuResult.days ?? []).map((day) => [day.date, day]));
+  const cogsByDate = new Map((cogsResult.result?.byDate ?? []).map((day) => [day.date, day]));
 
-  const volumes: DailyVolume[] = days.map((day) => {
-    const sku = skuByDate.get(day.date);
-    return {
-      date: day.date,
-      orders: day.orders,
-      unitsSold: day.unitsSold,
-      netSales: netSales(day),
-      unitsBySku: sku?.unitsBySku ?? {},
-      shopifyCogs: sku?.shopifyCogs ?? null,
-    };
-  });
+  // Units per SKU, derived from the costed lines, for the manual cost table.
+  const unitsBySkuByDate = new Map<string, Record<string, number>>();
+  for (const line of cogsResult.result?.lines ?? []) {
+    const bucket = unitsBySkuByDate.get(line.date) ?? {};
+    bucket[line.sku] = (bucket[line.sku] ?? 0) + line.quantityCosted;
+    unitsBySkuByDate.set(line.date, bucket);
+  }
+
+  const volumes: DailyVolume[] = days.map((day) => ({
+    date: day.date,
+    orders: day.orders,
+    unitsSold: day.unitsSold,
+    netSales: netSales(day),
+    unitsBySku: unitsBySkuByDate.get(day.date) ?? {},
+    shopifyCogs: cogsByDate.get(day.date)?.cogs ?? null,
+  }));
 
   const calculation = calculateCosts(settings, volumes);
   const byDate = new Map(calculation.days.map((day) => [day.date, day]));
@@ -183,18 +204,42 @@ export async function applyBusinessCosts(
   });
 
   const issues = [...calculation.issues];
-  if (skuResult.error && needsLineItems(settings)) {
-    issues.unshift({ section: "cogs", message: skuResult.error, details: [] });
+  if (cogsResult.error && needsLineItems(settings)) {
+    issues.unshift({ section: "cogs", message: cogsResult.error, details: [] });
   }
+
+  // SKUs Shopify sold but has no cost per item for. Named, never guessed.
+  const shopifyMissing = cogsResult.result?.missingCostSkus ?? [];
+  if (settings.cogs.mode === "shopify_cost_per_item" && shopifyMissing.length > 0) {
+    const units = cogsResult.result?.unitsMissingCost ?? 0;
+    issues.push({
+      section: "cogs",
+      message:
+        `${shopifyMissing.length} SKU${shopifyMissing.length === 1 ? "" : "s"} sold with no cost ` +
+        `per item in Shopify (${units} unit${units === 1 ? "" : "s"}). COGS understates until a ` +
+        `cost is set on those variants.`,
+      details: shopifyMissing,
+    });
+  }
+
+  const missingSkus =
+    settings.cogs.mode === "shopify_cost_per_item" ? shopifyMissing : calculation.missingSkus;
+
+  // A cost source that returned nothing usable, or left units uncosted, must
+  // not read as complete.
+  const cogsSource =
+    settings.cogs.mode === "shopify_cost_per_item" && shopifyMissing.length > 0
+      ? "incomplete"
+      : sources.cogs;
 
   return {
     days: applied,
     status: {
       configured: true,
-      sources,
+      sources: { ...sources, cogs: cogsSource },
       issues,
-      missingSkus: calculation.missingSkus,
-      lineItemError: skuResult.error,
+      missingSkus,
+      lineItemError: cogsResult.error,
       updatedAt: settings.updatedAt,
     },
   };

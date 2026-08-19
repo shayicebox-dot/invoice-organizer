@@ -94,8 +94,17 @@ and Expenses remain fully mock, so the two can be compared side by side.
 
 ## Connecting Shopify
 
-Create a custom app on the store, enable the **`read_orders`** scope, and put its
+Create a custom app on the store, enable the scopes below, and put its
 credentials in `.env.local`:
+
+| Scope | Needed for |
+|---|---|
+| `read_orders` | Revenue, refunds, orders, units |
+| `read_products` | Order line items and their variants |
+| `read_inventory` | Shopify's cost per item, used for COGS |
+
+`read_orders` alone runs the revenue integration. Without the other two, COGS
+reports as missing rather than failing.
 
 ```bash
 SHOPIFY_STORE_DOMAIN="example.myshopify.com"
@@ -128,6 +137,36 @@ the client refreshes once and retries. Requests time out after 15 seconds.
   in some error bodies, so the body is deliberately not propagated — that is how
   a client secret ends up in a log.
 - No credential is written to disk, to the database, or to the repository.
+
+### Cost of goods sold
+
+COGS defaults to **Shopify's own cost per item**, which is real data the
+merchant already maintains. It is never estimated from revenue.
+
+For each order line in the range: the variant is identified, its inventory
+item's unit cost is read, and COGS is that cost multiplied by the quantity.
+Line costs roll into day totals and day totals into the range total, with
+integer minor units throughout.
+
+**Returns.** A unit returned to sellable inventory is not a cost, so its cost is
+reversed — Shopify reports this per refund line as `restockType`. A return that
+was *not* restocked (damaged, written off) keeps its cost, because the goods are
+gone. The reversal is attributed to the order's date, matching how the refunded
+amount is attributed, so revenue and its cost reverse on the same day.
+
+**A variant with no cost recorded** contributes nothing and its SKU is listed as
+missing. The dashboard marks the P&L incomplete and names the SKUs; it never
+substitutes an average or a percentage.
+
+Verify line by line against Shopify's own reports:
+
+```bash
+npm run verify:cogs -- 2026-08-01 2026-08-10
+```
+
+It prints order, SKU, quantity sold, quantity returned, cost per item, line COGS
+and the range total, checks that line, day and range totals agree, and exits
+non-zero if any SKU is missing a cost.
 
 ### Known limitations
 
