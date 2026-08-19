@@ -43,9 +43,11 @@ export function CostSection({
 }
 
 export function SourceLabel({ source }: { source: CostSource }) {
-  if (source === "incomplete") return <Badge tone="negative">Missing cost data</Badge>;
+  if (source === "incomplete") return <Badge tone="negative">Missing cost mapping</Badge>;
   if (source === "live") return <SourceTag source="live" />;
+  if (source === "manual_real") return <SourceTag source="manual-real" />;
   if (source === "manual") return <SourceTag source="manual" />;
+  if (source === "not_configured") return <SourceTag source="not-configured" />;
   return <SourceTag source="mock" />;
 }
 

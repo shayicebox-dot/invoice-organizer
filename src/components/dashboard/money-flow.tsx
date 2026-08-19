@@ -75,25 +75,44 @@ export function MoneyFlow({
       direction: "out",
       source: costSources?.shipping ?? "mock",
     },
+    // Under the pack model, processing sits inside the percentage of revenue,
+    // so the fee line is zero and saying nothing would look like an omission.
+    ...(summary.paymentFees === 0 && costSources?.paymentFees === "manual-real"
+      ? []
+      : [
+          {
+            label: "Payment fees",
+            amount: summary.paymentFees,
+            direction: "out" as const,
+            source: costSources?.paymentFees ?? "mock",
+          },
+        ]),
     {
-      label: "Payment fees",
-      amount: summary.paymentFees,
-      direction: "out",
-      source: costSources?.paymentFees ?? "mock",
-    },
-    {
-      label: "Other expenses",
+      label:
+        costSources?.otherExpenses === "manual-real"
+          ? "Other variable costs"
+          : "Other expenses",
       amount: summary.variableExpenses,
       direction: "out",
+      note:
+        costSources?.otherExpenses === "manual-real"
+          ? "5% of net revenue · includes processing"
+          : undefined,
       source: costSources?.otherExpenses ?? "mock",
     },
-    {
-      label: "Fixed expenses",
-      amount: summary.fixedExpenses,
-      direction: "out",
-      note: "Allocated to this period",
-      source: costSources?.otherExpenses ?? "mock",
-    },
+    // Overhead only appears once there is some. A zero line labelled real
+    // reads as a missing figure rather than an absent cost.
+    ...(summary.fixedExpenses === 0 && costSources?.otherExpenses === "manual-real"
+      ? []
+      : [
+          {
+            label: "Fixed expenses",
+            amount: summary.fixedExpenses,
+            direction: "out" as const,
+            note: "Allocated to this period",
+            source: costSources?.otherExpenses ?? "mock",
+          },
+        ]),
   ];
 
   const isLoss = summary.netProfit < 0;

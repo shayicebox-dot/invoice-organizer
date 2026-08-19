@@ -5,20 +5,22 @@
  * who never opens the Business Costs page must see "not configured", not a
  * 2.9% fee someone guessed for them.
  *
- * COGS is the one exception, and not a guess: it defaults to Shopify's own cost
- * per item, which is real data the merchant already maintains. A variant with
- * no cost recorded is reported as missing, never estimated.
+ * COGS and fulfillment are the exception, and not a guess: they default to the
+ * business's real pack cost model, applied to real Shopify volume. A line that
+ * cannot be mapped to a pack confidently is reported, never estimated.
  */
 
+import { defaultPackModel } from "./pack-model";
 import type { BusinessCostSettings } from "./types";
 
 export function emptySettings(): BusinessCostSettings {
   return {
     version: 1,
     updatedAt: new Date(0).toISOString(),
-    // Shopify's own cost per item is the default source: it is real data the
-    // merchant already maintains, so COGS is right without any setup.
-    cogs: { mode: "shopify_cost_per_item", skuCosts: [] },
+    // The pack model is the business's real cost structure, so it is the
+    // default. It costs by pack size against real Shopify volume.
+    cogs: { mode: "pack_cost_model", skuCosts: [] },
+    packModel: defaultPackModel(),
     shipping: { rates: [], fixedFees: [] },
     payments: { processors: [] },
     klaviyo: { plans: [] },

@@ -7,7 +7,14 @@
  */
 import { cn } from "@/lib/cn";
 
-export type DataSource = "live" | "manual" | "mock" | "blend" | "missing";
+export type DataSource =
+  | "live"
+  | "manual"
+  | "manual-real"
+  | "mock"
+  | "blend"
+  | "missing"
+  | "not-configured";
 
 export function SourceTag({
   source,
@@ -22,12 +29,17 @@ export function SourceTag({
   const isLive = source === "live";
   const isBlend = source === "blend";
   const isMissing = source === "missing";
-  const isManual = source === "manual";
+  const isManual = source === "manual" || source === "manual-real";
+  const isNotConfigured = source === "not-configured";
 
   return (
     <span
       title={
-        isManual
+        source === "manual-real"
+          ? "A real business rule applied to real Shopify volume"
+          : isNotConfigured
+          ? "Deliberately not set up — contributes zero"
+          : isManual
           ? "Configured on the Business Costs page"
           : isBlend
           ? "Derived from live and mock inputs"
@@ -40,6 +52,7 @@ export function SourceTag({
         isLive && "border-emerald-200 bg-positive-soft text-positive",
         isBlend && "border-amber-200 bg-amber-50 text-amber-700",
         isManual && "border-blue-200 bg-blue-50 text-blue-700",
+        isNotConfigured && "border-line bg-surface text-ink-muted",
         isMissing && "border-red-200 bg-negative-soft text-negative",
         source === "mock" && "border-line bg-surface-sunken text-ink-muted",
         className,
@@ -49,13 +62,17 @@ export function SourceTag({
       {label ??
         (isLive
           ? "Live"
-          : isManual
-            ? "Manual"
-            : isBlend
-              ? "Mixed"
-              : isMissing
-                ? "Missing data"
-                : "Mock")}
+          : source === "manual-real"
+            ? "Manual real"
+            : isManual
+              ? "Manual"
+              : isBlend
+                ? "Mixed"
+                : isMissing
+                  ? "Missing data"
+                  : isNotConfigured
+                    ? "Not configured"
+                    : "Mock")}
     </span>
   );
 }

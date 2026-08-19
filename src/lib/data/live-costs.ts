@@ -14,7 +14,7 @@
 import "server-only";
 
 import type { DailyFinancials } from "../finance";
-import { add } from "../money";
+import { type Money, ZERO, add } from "../money";
 import type { ISODate } from "../types";
 import { type DailyVolume, calculateCosts } from "../business-costs/calculate";
 import { readSettings } from "../business-costs/store";
@@ -23,6 +23,7 @@ import { netSales } from "../finance";
 import { getShopifyConfig } from "../shopify/config";
 import { fetchShopInfo } from "../shopify/orders";
 import { type ShopifyCogsResult, fetchShopifyCogs } from "../shopify/cogs";
+import { costLine } from "../business-costs/pack-model";
 import { getGrantedScopes } from "../shopify/client";
 
 export interface BusinessCostStatus {
@@ -158,6 +159,41 @@ export async function applyBusinessCosts(
     unitsBySkuByDate.set(line.date, bucket);
   }
 
+  // Pack costing: each line is mapped to a 10, 20 or 50 pack and costed by that
+  // pack's rule. A line that cannot be mapped confidently contributes nothing
+  // and is named, so the shortfall is visible rather than absorbed.
+  const packByDate = new Map<string, { cogs: Money; fulfillment: Money }>();
+  const unmappedByDate = new Map<string, Set<string>>();
+  const unmappedAll = new Map<string, { label: string; units: number }>();
+
+  if (settings.cogs.mode === "pack_cost_model") {
+    for (const line of cogsResult.result?.lines ?? []) {
+      const costed = costLine(settings.packModel, line.date, line.quantityCosted, {
+        sku: line.sku,
+        title: line.title,
+        variantTitle: line.variantTitle,
+      });
+
+      const bucket = packByDate.get(line.date) ?? { cogs: ZERO, fulfillment: ZERO };
+      bucket.cogs = add(bucket.cogs, costed.productCogs);
+      bucket.fulfillment = add(bucket.fulfillment, costed.fulfillment);
+      packByDate.set(line.date, bucket);
+
+      if (costed.packSize === null && line.quantityCosted > 0) {
+        const label = describeUnmapped(line.sku, line.title, line.variantTitle);
+        const dayBucket = unmappedByDate.get(line.date) ?? new Set<string>();
+        dayBucket.add(label);
+        unmappedByDate.set(line.date, dayBucket);
+
+        const existing = unmappedAll.get(label) ?? { label, units: 0 };
+        existing.units += line.quantityCosted;
+        unmappedAll.set(label, existing);
+      }
+    }
+  }
+
+  const packAvailable = cogsResult.result !== null;
+
   const volumes: DailyVolume[] = days.map((day) => ({
     date: day.date,
     orders: day.orders,
@@ -165,6 +201,9 @@ export async function applyBusinessCosts(
     netSales: netSales(day),
     unitsBySku: unitsBySkuByDate.get(day.date) ?? {},
     shopifyCogs: cogsByDate.get(day.date)?.cogs ?? null,
+    packCogs: packAvailable ? (packByDate.get(day.date)?.cogs ?? ZERO) : null,
+    packFulfillment: packAvailable ? (packByDate.get(day.date)?.fulfillment ?? ZERO) : null,
+    unmappedLines: [...(unmappedByDate.get(day.date) ?? [])],
   }));
 
   const calculation = calculateCosts(settings, volumes);
@@ -208,6 +247,20 @@ export async function applyBusinessCosts(
     issues.unshift({ section: "cogs", message: cogsResult.error, details: [] });
   }
 
+  // Products that could not be mapped to a pack. Named, never guessed.
+  const unmappedList = [...unmappedAll.values()].sort((a, b) => b.units - a.units);
+  if (settings.cogs.mode === "pack_cost_model" && unmappedList.length > 0) {
+    const units = unmappedList.reduce((acc, entry) => acc + entry.units, 0);
+    issues.push({
+      section: "cogs",
+      message:
+        `Missing Cost Mapping: ${unmappedList.length} product${unmappedList.length === 1 ? "" : "s"} ` +
+        `could not be mapped to a 10, 20 or 50 pack (${units} unit${units === 1 ? "" : "s"}). ` +
+        `No cost was applied to them, so COGS and fulfillment understate.`,
+      details: unmappedList.map((entry) => `${entry.label} — ${entry.units} unit(s)`),
+    });
+  }
+
   // SKUs Shopify sold but has no cost per item for. Named, never guessed.
   const shopifyMissing = cogsResult.result?.missingCostSkus ?? [];
   if (settings.cogs.mode === "shopify_cost_per_item" && shopifyMissing.length > 0) {
@@ -223,7 +276,11 @@ export async function applyBusinessCosts(
   }
 
   const missingSkus =
-    settings.cogs.mode === "shopify_cost_per_item" ? shopifyMissing : calculation.missingSkus;
+    settings.cogs.mode === "pack_cost_model"
+      ? unmappedList.map((entry) => entry.label)
+      : settings.cogs.mode === "shopify_cost_per_item"
+        ? shopifyMissing
+        : calculation.missingSkus;
 
   // A cost source that returned nothing usable, or left units uncosted, must
   // not read as complete.
@@ -232,15 +289,25 @@ export async function applyBusinessCosts(
       ? "incomplete"
       : sources.cogs;
 
+  const shippingSource =
+    settings.cogs.mode === "pack_cost_model" ? cogsSource : sources.shipping;
+
   return {
     days: applied,
     status: {
       configured: true,
-      sources: { ...sources, cogs: cogsSource },
+      sources: { ...sources, cogs: cogsSource, shipping: shippingSource },
       issues,
       missingSkus,
       lineItemError: cogsResult.error,
       updatedAt: settings.updatedAt,
     },
   };
+}
+
+/** A stable, human label for a line that could not be mapped to a pack. */
+function describeUnmapped(sku: string, title: string, variantTitle: string | null): string {
+  const name = [title, variantTitle].filter((part) => part && part !== "Default").join(" · ");
+  if (sku && sku !== "(no SKU)") return `${sku}${name ? ` — ${name}` : ""}`;
+  return name || "(unnamed line item)";
 }

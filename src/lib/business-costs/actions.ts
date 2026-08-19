@@ -88,6 +88,38 @@ function share(form: FormData, key: string): number {
   return Math.min(Math.max(raw / 100, 0), 1);
 }
 
+// --- Pack mapping overrides -------------------------------------------------
+
+export async function addPackOverride(form: FormData): Promise<void> {
+  const match = text(form, "match");
+  const size = Number.parseInt(text(form, "packSize"), 10);
+  if (match === "" || ![10, 20, 50].includes(size)) return;
+
+  await updateSettings((current) => ({
+    ...current,
+    packModel: {
+      ...current.packModel,
+      overrides: [
+        ...current.packModel.overrides,
+        { id: newId("ovr"), match, packSize: size as 10 | 20 | 50 },
+      ],
+    },
+  }));
+  revalidateDashboard();
+}
+
+export async function removePackOverride(form: FormData): Promise<void> {
+  const id = text(form, "id");
+  await updateSettings((current) => ({
+    ...current,
+    packModel: {
+      ...current.packModel,
+      overrides: current.packModel.overrides.filter((entry) => entry.id !== id),
+    },
+  }));
+  revalidateDashboard();
+}
+
 // --- COGS ------------------------------------------------------------------
 
 export async function setCogsMode(form: FormData): Promise<void> {

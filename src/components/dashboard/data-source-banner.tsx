@@ -51,7 +51,9 @@ export function DataSourceBanner({
       [costSources.otherExpenses, "other expenses"],
     ] as const
   )
-    .filter(([source]) => source === "manual" || source === "live")
+    .filter(
+      ([source]) => source === "manual" || source === "manual_real" || source === "live",
+    )
     .map(([, label]) => label);
 
   const mockFields = [

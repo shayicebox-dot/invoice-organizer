@@ -235,10 +235,14 @@ export default async function OverviewPage(props: PageProps<"/">) {
 }
 
 /** Map a cost provenance onto the tag vocabulary the UI uses. */
-function costTag(source: CostSource): "live" | "manual" | "mock" | "missing" {
+function costTag(
+  source: CostSource,
+): "live" | "manual" | "manual-real" | "mock" | "missing" | "not-configured" {
   if (source === "live") return "live";
+  if (source === "manual_real") return "manual-real";
   if (source === "manual") return "manual";
   if (source === "incomplete") return "missing";
+  if (source === "not_configured") return "not-configured";
   return "mock";
 }
 
@@ -266,7 +270,7 @@ function netProfitNote(
     .filter(([source]) => source === "incomplete")
     .map(([, label]) => label);
   for (const [source, label] of costLabels) {
-    if (source === "manual" || source === "live") real.push(label);
+    if (source === "manual" || source === "manual_real" || source === "live") real.push(label);
   }
 
   if (real.length === 0) return "Every input is mock data.";

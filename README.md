@@ -138,10 +138,55 @@ the client refreshes once and retries. Requests time out after 15 seconds.
   a client secret ends up in a log.
 - No credential is written to disk, to the database, or to the repository.
 
-### Cost of goods sold
+### The pack cost model
 
-COGS defaults to **Shopify's own cost per item**, which is real data the
-merchant already maintains. It is never estimated from revenue.
+Cost is driven by pack size, not by a per-item cost. This is the default and the
+real Kicks Box model:
+
+| Pack | Product COGS | Shipping, storage, pick & pack | Total per pack |
+|---|---|---|---|
+| 10 | $24 | $21 | $45 |
+| 20 | $48 | $42 | $90 |
+| 50 | $120 | $105 | $225 |
+
+Plus **5% of Shopify net revenue** for other variable costs — payment
+processing, Shopify fees and apps, and small variable operating expenses. It is
+charged in addition to the pack costs, and excludes Meta and Google spend, which
+come from the ad platforms directly. Because processing lives inside this 5%,
+there is no separate payment-fee line.
+
+    Net Profit = Shopify net revenue
+               − product COGS
+               − shipping & fulfillment
+               − 5% other variable costs
+               − Meta Ads spend
+               − Google Ads spend
+
+**Mapping.** Every Shopify line item is mapped to a 10, 20 or 50 pack by reading
+its SKU, then its variant or product title, and multiplied by the quantity
+ordered. Mapping is deliberately strict: it needs a pack word beside the number
+or the number as a whole SKU segment, so `100` never reads as `10` and a title
+naming two sizes is ambiguous rather than resolved by picking one. An explicit
+override on the Business Costs page beats anything read from text.
+
+**Anything unmapped costs nothing and is named** as *Missing Cost Mapping*, and
+the P&L is marked incomplete. List what needs mapping:
+
+```bash
+npm run verify:packs -- 2026-08-01 2026-08-10
+```
+
+It prints every product mapped to each pack size with its units and cost, then
+everything that could not be mapped, and exits non-zero when anything is
+outstanding.
+
+**Klaviyo** contributes $0 and is labelled *Not configured* until a real
+subscription cost is entered — never a mock figure.
+
+### Cost of goods sold from Shopify (alternative source)
+
+COGS can instead be read from **Shopify's own cost per item**. It is never
+estimated from revenue.
 
 For each order line in the range: the variant is identified, its inventory
 item's unit cost is read, and COGS is that cost multiplied by the quantity.

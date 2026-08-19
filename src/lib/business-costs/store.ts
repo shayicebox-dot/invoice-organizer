@@ -45,6 +45,16 @@ function normalize(raw: Partial<BusinessCostSettings> | null): BusinessCostSetti
       mode: raw.cogs?.mode ?? base.cogs.mode,
       skuCosts: Array.isArray(raw.cogs?.skuCosts) ? raw.cogs.skuCosts : [],
     },
+    packModel: {
+      rules: Array.isArray(raw.packModel?.rules) && raw.packModel.rules.length > 0
+        ? raw.packModel.rules
+        : base.packModel.rules,
+      overrides: Array.isArray(raw.packModel?.overrides) ? raw.packModel.overrides : [],
+      variableRateOfNetRevenue:
+        typeof raw.packModel?.variableRateOfNetRevenue === "number"
+          ? raw.packModel.variableRateOfNetRevenue
+          : base.packModel.variableRateOfNetRevenue,
+    },
     shipping: {
       rates: Array.isArray(raw.shipping?.rates) ? raw.shipping.rates : [],
       fixedFees: Array.isArray(raw.shipping?.fixedFees) ? raw.shipping.fixedFees : [],

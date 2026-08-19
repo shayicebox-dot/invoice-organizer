@@ -13,6 +13,7 @@
 
 import type { Money } from "../money";
 import type { ExpenseCategory, ISODate } from "../types";
+import type { PackCostModel } from "./pack-model";
 
 /** Where a figure on the dashboard came from. */
 export type CostSource =
@@ -20,10 +21,14 @@ export type CostSource =
   | "live"
   /** Configured by the merchant on the Business Costs page. */
   | "manual"
+  /** A real business rule applied to real Shopify volume. */
+  | "manual_real"
   /** Generated demo data — never a real number. */
   | "mock"
   /** Configured, but some input is missing, so the total understates. */
-  | "incomplete";
+  | "incomplete"
+  /** Deliberately not set up. Contributes zero, and is not pretending to. */
+  | "not_configured";
 
 /** Anything that applies over a date window. */
 export interface EffectiveWindow {
@@ -35,6 +40,8 @@ export interface EffectiveWindow {
 // --- COGS ------------------------------------------------------------------
 
 export type CogsMode =
+  /** Cost by pack size using the business's own pack rules. */
+  | "pack_cost_model"
   /** Use Shopify's own cost-per-item from the inventory item. */
   | "shopify_cost_per_item"
   /** Use the per-SKU costs configured below. */
@@ -112,6 +119,11 @@ export interface BusinessCostSettings {
   version: 1;
   updatedAt: string;
   cogs: CogsSettings;
+  /**
+   * Pack-size cost rules. Drives COGS and fulfillment together, because the
+   * business buys and ships by the pack rather than by the unit.
+   */
+  packModel: PackCostModel;
   shipping: {
     rates: ShippingRate[];
     /** 3PL minimums and other fixed fulfillment fees. */

@@ -36,6 +36,14 @@ export interface DailyVolume {
    * item. Only populated when that data was fetched.
    */
   shopifyCogs: Money | null;
+  /**
+   * COGS and fulfillment from the pack cost model, already costed against the
+   * day's real line items. `null` when the lines could not be read.
+   */
+  packCogs: Money | null;
+  packFulfillment: Money | null;
+  /** Line descriptions that could not be mapped to a pack size. */
+  unmappedLines: string[];
 }
 
 /** One day of computed costs. */
@@ -111,6 +119,15 @@ interface CogsResult {
 }
 
 function computeCogs(settings: BusinessCostSettings, volume: DailyVolume): CogsResult {
+  if (settings.cogs.mode === "pack_cost_model") {
+    // Costed upstream against the day's real line items, because the pack rule
+    // applies per line and the line detail lives with the Shopify reader.
+    if (volume.packCogs === null) {
+      return { amount: ZERO, missing: [], usable: false };
+    }
+    return { amount: volume.packCogs, missing: volume.unmappedLines, usable: true };
+  }
+
   if (settings.cogs.mode === "shopify_cost_per_item") {
     // Shopify is authoritative here; if it did not supply a figure we say so
     // rather than falling back to the manual table behind the merchant's back.
@@ -148,6 +165,14 @@ function computeCogs(settings: BusinessCostSettings, volume: DailyVolume): CogsR
 // --- Shipping --------------------------------------------------------------
 
 function computeShipping(settings: BusinessCostSettings, volume: DailyVolume): Money {
+  // Under the pack model, fulfillment is part of the pack rule — shipping,
+  // storage and pick & pack are one figure per pack — so the per-order and
+  // per-unit rate table does not apply.
+  if (settings.cogs.mode === "pack_cost_model") {
+    const packFulfillment = volume.packFulfillment ?? ZERO;
+    return add(packFulfillment, dailyShareOfAll(settings.shipping.fixedFees, volume.date));
+  }
+
   const rates = effectiveRecords(settings.shipping.rates, volume.date);
 
   let total = ZERO;
@@ -186,6 +211,10 @@ function computeShipping(settings: BusinessCostSettings, volume: DailyVolume): M
 // --- Payment fees ----------------------------------------------------------
 
 function computePaymentFees(settings: BusinessCostSettings, volume: DailyVolume): Money {
+  // Under the pack model, payment processing is inside the flat percentage of
+  // net revenue, so charging it again here would double count.
+  if (settings.cogs.mode === "pack_cost_model") return ZERO;
+
   const processors = effectiveRecords(settings.payments.processors, volume.date);
   if (processors.length === 0) return ZERO;
 
@@ -230,9 +259,21 @@ export function calculateCosts(
     day.shipping = computeShipping(settings, volume);
     day.paymentFees = computePaymentFees(settings, volume);
     day.klaviyo = dailyShareOfAll(settings.klaviyo.plans, volume.date);
-    day.variableExpenses = dailyShareOfAll(
-      settings.expenses.filter((expense) => !isFixedCategory(expense.category)),
-      volume.date,
+
+    // The flat percentage of net revenue covers payment processing, platform
+    // fees and the small operating costs that move with sales. Configured
+    // one-off and recurring expenses are added on top of it.
+    const percentageOfRevenue =
+      settings.cogs.mode === "pack_cost_model"
+        ? scale(volume.netSales, settings.packModel.variableRateOfNetRevenue)
+        : ZERO;
+
+    day.variableExpenses = add(
+      percentageOfRevenue,
+      dailyShareOfAll(
+        settings.expenses.filter((expense) => !isFixedCategory(expense.category)),
+        volume.date,
+      ),
     );
     day.fixedExpenses = dailyShareOfAll(
       settings.expenses.filter((expense) => isFixedCategory(expense.category)),
@@ -257,6 +298,14 @@ export function calculateCosts(
       message: "COGS is not configured. Set a cost source on the Business Costs page.",
       details: [],
     });
+  } else if (settings.cogs.mode === "pack_cost_model" && !cogsUsable && anyUnitsSold) {
+    issues.push({
+      section: "cogs",
+      message:
+        "Shopify line items are unavailable for this period, so packs cannot be identified " +
+        "and no cost can be applied.",
+      details: [],
+    });
   } else if (!cogsUsable && anyUnitsSold) {
     issues.push({
       section: "cogs",
@@ -271,12 +320,17 @@ export function calculateCosts(
   if (missingSkus.size > 0) {
     issues.push({
       section: "cogs",
-      message: `${missingSkus.size} SKU${missingSkus.size === 1 ? "" : "s"} sold with no configured unit cost, so COGS understates.`,
+      message:
+        settings.cogs.mode === "pack_cost_model"
+          ? `${missingSkus.size} product${missingSkus.size === 1 ? "" : "s"} could not be mapped to a 10, 20 or 50 pack. No cost was applied to them, so COGS and fulfillment understate.`
+          : `${missingSkus.size} SKU${missingSkus.size === 1 ? "" : "s"} sold with no configured unit cost, so COGS understates.`,
       details: [...missingSkus].sort(),
     });
   }
 
-  if (!hasShippingRates) {
+  // Under the pack model, fulfillment comes from the pack rule, so the rate
+  // table being empty is expected rather than a problem.
+  if (!hasShippingRates && settings.cogs.mode !== "pack_cost_model") {
     issues.push({
       section: "shipping",
       message: "No shipping or fulfillment rates configured.",
@@ -284,7 +338,7 @@ export function calculateCosts(
     });
   }
 
-  if (!hasProcessors) {
+  if (!hasProcessors && settings.cogs.mode !== "pack_cost_model") {
     issues.push({
       section: "payments",
       message: "No payment processor configured, so processing fees are missing.",
@@ -292,15 +346,10 @@ export function calculateCosts(
     });
   }
 
-  if (!hasKlaviyo) {
-    issues.push({
-      section: "klaviyo",
-      message: "No Klaviyo subscription cost configured.",
-      details: [],
-    });
-  }
+  // Klaviyo without a configured cost is zero and labelled not configured. That
+  // is a deliberate state, not a gap in the data, so it raises no issue.
 
-  if (!hasExpenses) {
+  if (!hasExpenses && settings.cogs.mode !== "pack_cost_model") {
     issues.push({
       section: "expenses",
       message: "No other business expenses configured.",
@@ -308,23 +357,26 @@ export function calculateCosts(
     });
   }
 
+  const packMode = settings.cogs.mode === "pack_cost_model";
+
   const cogsSource: CostSource =
     settings.cogs.mode === "not_configured"
       ? "mock"
-      : !cogsUsable && anyUnitsSold
+      : (!cogsUsable && anyUnitsSold) || missingSkus.size > 0
         ? "incomplete"
-        : missingSkus.size > 0
-          ? "incomplete"
+        : packMode
+          ? "manual_real"
           : settings.cogs.mode === "shopify_cost_per_item"
             ? "live"
             : "manual";
 
   const sources: CostSourceMap = {
     cogs: cogsSource,
-    shipping: hasShippingRates ? "manual" : "mock",
-    paymentFees: hasProcessors ? "manual" : "mock",
-    klaviyo: hasKlaviyo ? "manual" : "mock",
-    otherExpenses: hasExpenses ? "manual" : "mock",
+    shipping: packMode ? cogsSource : hasShippingRates ? "manual" : "mock",
+    // Processing sits inside the percentage of revenue under the pack model.
+    paymentFees: packMode ? "manual_real" : hasProcessors ? "manual" : "mock",
+    klaviyo: hasKlaviyo ? "manual" : packMode ? "not_configured" : "mock",
+    otherExpenses: packMode ? "manual_real" : hasExpenses ? "manual" : "mock",
   };
 
   return { days, issues, sources, missingSkus: [...missingSkus].sort() };

@@ -11,7 +11,8 @@
     "check": "npm run lint && npm run typecheck && npm run test && npm run build",
     "smoke:google-ads": "tsx --conditions=react-server scripts/smoke-google-ads.mts",
     "test": "node --import tsx --conditions=react-server --test \"tests/*.test.mts\"",
-    "verify:cogs": "tsx --conditions=react-server scripts/verify-cogs.mts"
+    "verify:cogs": "tsx --conditions=react-server scripts/verify-cogs.mts",
+    "verify:packs": "tsx --conditions=react-server scripts/verify-packs.mts"
   },
   "dependencies": {
     "google-auth-library": "^11.0.2",

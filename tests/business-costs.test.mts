@@ -118,6 +118,9 @@ function volume(over: Partial<DailyVolume> = {}): DailyVolume {
     netSales: fromMajor(10_000),
     unitsBySku: { "SKU-1": 150, "SKU-2": 100 },
     shopifyCogs: null,
+    packCogs: null,
+    packFulfillment: null,
+    unmappedLines: [],
     ...over,
   };
 }
@@ -222,29 +225,68 @@ describe("calculateCosts", () => {
     assert.equal(isFixedCategory("packaging"), false);
   });
 
-  it("defaults COGS to Shopify's own cost per item", () => {
-    // Not a guess: it is data the merchant already maintains in Shopify.
-    assert.equal(emptySettings().cogs.mode, "shopify_cost_per_item");
+  it("defaults to the real pack cost model", () => {
+    assert.equal(emptySettings().cogs.mode, "pack_cost_model");
   });
 
-  it("marks the untouched sections mock, and COGS incomplete without Shopify data", () => {
-    const result = calculateCosts(emptySettings(), [volume({ shopifyCogs: null })]);
+  it("marks COGS incomplete when Shopify line items are unavailable", () => {
+    // The pack model needs line items to identify packs. Without them nothing
+    // is costed, and nothing is guessed.
+    const result = calculateCosts(emptySettings(), [volume({ packCogs: null })]);
 
-    // COGS is configured by default, so it is not mock — but with no cost data
-    // from Shopify it must report incomplete rather than a number.
     assert.equal(result.sources.cogs, "incomplete");
-    assert.equal(result.sources.shipping, "mock");
-    assert.equal(result.sources.paymentFees, "mock");
-    assert.equal(result.sources.klaviyo, "mock");
-    assert.equal(result.sources.otherExpenses, "mock");
-
-    // Nothing is invented: every computed line is zero.
     assert.equal(toMinor(result.days[0].cogs), 0);
     assert.equal(toMinor(result.days[0].shipping), 0);
-    assert.equal(toMinor(result.days[0].paymentFees), 0);
   });
 
-  it("marks every section mock when COGS is explicitly turned off too", () => {
+  it("labels Klaviyo not configured rather than mock", () => {
+    const result = calculateCosts(emptySettings(), [volume()]);
+    assert.equal(result.sources.klaviyo, "not_configured");
+    assert.equal(toMinor(result.days[0].klaviyo), 0);
+    assert.ok(
+      !result.issues.some((issue) => issue.section === "klaviyo"),
+      "an unset Klaviyo cost is a deliberate state, not a gap",
+    );
+  });
+
+  it("charges 5% of net revenue and no separate payment fee", () => {
+    const settings = emptySettings();
+    const result = calculateCosts(settings, [
+      volume({ netSales: fromMajor(10_000), packCogs: fromMajor(2_000), packFulfillment: fromMajor(1_750) }),
+    ]);
+
+    // Processing sits inside the 5%, so charging it again would double count.
+    assert.equal(toMinor(result.days[0].paymentFees), 0);
+    assert.equal(toMinor(result.days[0].variableExpenses), toMinor(fromMajor(500)));
+    assert.equal(result.sources.paymentFees, "manual_real");
+    assert.equal(result.sources.otherExpenses, "manual_real");
+  });
+
+  it("takes COGS and fulfillment straight from the pack costing", () => {
+    const result = calculateCosts(emptySettings(), [
+      volume({ packCogs: fromMajor(2_400), packFulfillment: fromMajor(2_100) }),
+    ]);
+    assert.equal(toMinor(result.days[0].cogs), toMinor(fromMajor(2_400)));
+    assert.equal(toMinor(result.days[0].shipping), toMinor(fromMajor(2_100)));
+    assert.equal(result.sources.cogs, "manual_real");
+    assert.equal(result.sources.shipping, "manual_real");
+  });
+
+  it("reports unmapped products and marks COGS incomplete", () => {
+    const result = calculateCosts(emptySettings(), [
+      volume({
+        packCogs: fromMajor(100),
+        packFulfillment: fromMajor(90),
+        unmappedLines: ["GIFT-CARD — Gift card"],
+      }),
+    ]);
+
+    assert.equal(result.sources.cogs, "incomplete");
+    assert.deepEqual(result.missingSkus, ["GIFT-CARD — Gift card"]);
+    assert.ok(result.issues.some((issue) => issue.message.includes("could not be mapped")));
+  });
+
+  it("marks every section mock when COGS is explicitly turned off", () => {
     const settings = { ...emptySettings(), cogs: { mode: "not_configured" as const, skuCosts: [] } };
     const result = calculateCosts(settings, [volume()]);
     assert.deepEqual(result.sources, {
@@ -254,7 +296,8 @@ describe("calculateCosts", () => {
       klaviyo: "mock",
       otherExpenses: "mock",
     });
-    assert.equal(result.issues.length, 5, "one issue per unconfigured section");
+    // No percentage of revenue is charged when the pack model is off.
+    assert.equal(toMinor(result.days[0].variableExpenses), 0);
   });
 
   it("raises an issue when per-SKU costing has no line-item data", () => {
