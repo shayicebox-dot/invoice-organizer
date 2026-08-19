@@ -11,17 +11,24 @@ import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { InfoIcon } from "@/components/ui/icons";
-import type { GoogleAdsStatus, MetaStatus, ShopifyStatus } from "@/lib/data";
+import type {
+  BusinessCostStatus,
+  GoogleAdsStatus,
+  MetaStatus,
+  ShopifyStatus,
+} from "@/lib/data";
 import { cn } from "@/lib/cn";
 
 export function DataSourceBanner({
   shopify,
   meta,
   googleAds,
+  costs,
 }: {
   shopify: ShopifyStatus;
   meta: MetaStatus;
   googleAds: GoogleAdsStatus;
+  costs: BusinessCostStatus;
 }) {
   const states = [shopify.state, meta.state, googleAds.state];
   const anyLive = states.includes("connected");
@@ -34,16 +41,41 @@ export function DataSourceBanner({
   if (meta.state === "connected") liveFields.push("Meta Ads spend");
   if (googleAds.state === "connected") liveFields.push("Google Ads spend");
 
+  const costSources = costs.sources;
+  const manualFields = (
+    [
+      [costSources.cogs, "COGS"],
+      [costSources.shipping, "shipping & fulfillment"],
+      [costSources.paymentFees, "payment fees"],
+      [costSources.klaviyo, "Klaviyo"],
+      [costSources.otherExpenses, "other expenses"],
+    ] as const
+  )
+    .filter(([source]) => source === "manual" || source === "live")
+    .map(([, label]) => label);
+
   const mockFields = [
     shopify.state === "connected" ? null : "revenue and orders",
     meta.state === "connected" ? null : "Meta Ads",
     googleAds.state === "connected" ? null : "Google Ads",
-    "Klaviyo",
-    "COGS",
-    "shipping",
-    "payment fees",
-    "all other expenses",
+    costSources.klaviyo === "mock" ? "Klaviyo" : null,
+    costSources.cogs === "mock" ? "COGS" : null,
+    costSources.shipping === "mock" ? "shipping" : null,
+    costSources.paymentFees === "mock" ? "payment fees" : null,
+    costSources.otherExpenses === "mock" ? "other expenses" : null,
   ].filter((entry): entry is string => entry !== null);
+
+  const incompleteFields = (
+    [
+      [costSources.cogs, "COGS"],
+      [costSources.shipping, "shipping & fulfillment"],
+      [costSources.paymentFees, "payment fees"],
+      [costSources.klaviyo, "Klaviyo"],
+      [costSources.otherExpenses, "other expenses"],
+    ] as const
+  )
+    .filter(([source]) => source === "incomplete")
+    .map(([, label]) => label);
 
   return (
     <div
@@ -68,10 +100,25 @@ export function DataSourceBanner({
         />
       </div>
 
-      {liveFields.length > 0 ? (
+      {liveFields.length > 0 || manualFields.length > 0 ? (
         <p className="mt-2.5 text-[12px] leading-5 text-ink-secondary">
-          <strong className="font-semibold text-ink">Live:</strong> {liveFields.join(" · ")}.{" "}
-          <strong className="font-semibold text-ink">Still mock:</strong> {mockFields.join(", ")}.
+          {liveFields.length > 0 ? (
+            <>
+              <strong className="font-semibold text-ink">Live:</strong> {liveFields.join(" · ")}.{" "}
+            </>
+          ) : null}
+          {manualFields.length > 0 ? (
+            <>
+              <strong className="font-semibold text-ink">Configured:</strong>{" "}
+              {manualFields.join(", ")}.{" "}
+            </>
+          ) : null}
+          {mockFields.length > 0 ? (
+            <>
+              <strong className="font-semibold text-ink">Still mock:</strong>{" "}
+              {mockFields.join(", ")}.
+            </>
+          ) : null}
         </p>
       ) : (
         <p className="mt-2.5 flex items-start gap-2 text-[12px] leading-5 text-ink-secondary">
@@ -89,17 +136,38 @@ export function DataSourceBanner({
         </p>
       )}
 
-      {anyLive ? (
+      {incompleteFields.length > 0 ? (
+        <p className="mt-1.5 text-[12px] leading-5 text-negative">
+          <strong className="font-semibold">Missing cost data</strong> in{" "}
+          {incompleteFields.join(", ")} — these totals understate, so Net Profit is overstated.
+          Fix on the Business Costs page.
+        </p>
+      ) : null}
+
+      {anyLive && mockFields.length > 0 ? (
         <p className="mt-1.5 text-[12px] leading-5 text-ink-secondary">
           Net Profit and every margin therefore mix real inputs with placeholder costs.{" "}
           <strong className="font-semibold text-ink">
             Treat them as structural, not accurate
           </strong>{" "}
-          until the remaining integrations land.
+          until the remaining inputs are configured.
+        </p>
+      ) : null}
+
+      {anyLive && mockFields.length === 0 && incompleteFields.length === 0 ? (
+        <p className="mt-1.5 text-[12px] leading-5 text-ink-secondary">
+          Every input is real — no mock figure remains in this P&amp;L.
         </p>
       ) : null}
 
       <Problems shopify={shopify} meta={meta} googleAds={googleAds} />
+
+      {costs.issues.length > 0 ? (
+        <p className="mt-2 text-[11.5px] leading-4 text-ink-muted">
+          {costs.issues.length} cost setting{costs.issues.length === 1 ? " needs" : "s need"}{" "}
+          attention — see Business Costs.
+        </p>
+      ) : null}
     </div>
   );
 }

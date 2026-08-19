@@ -55,6 +55,7 @@ import {
   loadGoogleAdsMetrics,
   probeGoogleAdsStatus,
 } from "./live-google-ads";
+import { type BusinessCostStatus, applyBusinessCosts } from "./live-costs";
 
 export const ALL_STORES = "all" as const;
 
@@ -462,6 +463,7 @@ export interface LiveSourceStatus {
   shopify: ShopifyStatus;
   meta: MetaStatus;
   googleAds: GoogleAdsStatus;
+  costs: BusinessCostStatus;
 }
 
 /**
@@ -492,12 +494,17 @@ export async function getLiveDailyFinancials(
   if (metaResult.days) days = applyMetaSpend(days, metaResult.days);
   if (googleResult.metrics) days = applyGoogleAdsSpend(days, googleResult.metrics);
 
+  // Costs go last: they read the revenue the provider overlays produced, so
+  // percentage-based fees are charged on real sales rather than mock ones.
+  const costs = await applyBusinessCosts(days, start, end);
+
   return {
-    days,
+    days: costs.days,
     status: {
       shopify: shopifyResult.status,
       meta: metaResult.status,
       googleAds: googleResult.status,
+      costs: costs.status,
     },
   };
 }
@@ -506,6 +513,7 @@ export interface LiveRangeReport extends RangeReport {
   shopify: ShopifyStatus;
   meta: MetaStatus;
   googleAds: GoogleAdsStatus;
+  costs: BusinessCostStatus;
 }
 
 /**
@@ -531,6 +539,7 @@ export async function getLiveRangeReport(
     shopify: current.status.shopify,
     meta: current.status.meta,
     googleAds: current.status.googleAds,
+    costs: current.status.costs,
   };
 }
 
@@ -557,7 +566,9 @@ export async function getLiveTrailingDays(
   if (shopifyResult.days) result = applyShopifySales(result, shopifyResult.days);
   if (metaResult.days) result = applyMetaSpend(result, metaResult.days);
   if (googleResult.metrics) result = applyGoogleAdsSpend(result, googleResult.metrics);
-  return result;
+
+  const costs = await applyBusinessCosts(result, from, to);
+  return costs.days;
 }
 
 /** Connection status for the Connections page. Metadata only, no data sync. */
@@ -618,6 +629,6 @@ export async function getLiveChannelPerformance(
   return { channels: finalizeChannels(merged), googleAds: google.status };
 }
 
-export { type ShopifyStatus, type MetaStatus, type GoogleAdsStatus };
+export { type ShopifyStatus, type MetaStatus, type GoogleAdsStatus, type BusinessCostStatus };
 
 export { type DailyFinancials, type PeriodSummary };

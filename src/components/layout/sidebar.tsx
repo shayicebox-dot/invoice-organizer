@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { NAV_ITEMS, type NavIcon } from "@/lib/nav";
 import {
   ConnectionsIcon,
+  CostsIcon,
   ExpensesIcon,
   MarketingIcon,
   OrdersIcon,
@@ -25,6 +26,7 @@ const ICONS: Record<NavIcon, ComponentType<SVGProps<SVGSVGElement>>> = {
   orders: OrdersIcon,
   products: ProductsIcon,
   expenses: ExpensesIcon,
+  costs: CostsIcon,
   connections: ConnectionsIcon,
   stores: StoresIcon,
   settings: SettingsIcon,

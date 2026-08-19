@@ -26,6 +26,7 @@ export function MoneyFlow({
   revenueSource = "mock",
   metaSource = "mock",
   googleSource = "mock",
+  costSources,
 }: {
   title: string;
   caption: string;
@@ -34,8 +35,16 @@ export function MoneyFlow({
   revenueSource?: DataSource;
   /** Where the Meta Ads line came from. */
   metaSource?: DataSource;
-  /** Where the Google Ads line came from. Every other cost is still mock. */
+  /** Where the Google Ads line came from. */
   googleSource?: DataSource;
+  /** Provenance of each configurable business cost line. */
+  costSources?: {
+    cogs: DataSource;
+    shipping: DataSource;
+    paymentFees: DataSource;
+    klaviyo: DataSource;
+    otherExpenses: DataSource;
+  };
 }) {
   const inflows: FlowLine[] = [
     {
@@ -52,12 +61,39 @@ export function MoneyFlow({
   const outflows: FlowLine[] = [
     { label: "Meta Ads", amount: summary.metaAdSpend, direction: "out", source: metaSource },
     { label: "Google Ads", amount: summary.googleAdSpend, direction: "out", source: googleSource },
-    { label: "Klaviyo", amount: summary.emailSpend, direction: "out", note: "Email & SMS platform", source: "mock" },
-    { label: "COGS", amount: summary.cogs, direction: "out", source: "mock" },
-    { label: "Shipping & fulfillment", amount: summary.shipping, direction: "out", source: "mock" },
-    { label: "Payment fees", amount: summary.paymentFees, direction: "out", source: "mock" },
-    { label: "Other expenses", amount: summary.variableExpenses, direction: "out", source: "mock" },
-    { label: "Fixed expenses", amount: summary.fixedExpenses, direction: "out", note: "Allocated to this period", source: "mock" },
+    {
+      label: "Klaviyo",
+      amount: summary.emailSpend,
+      direction: "out",
+      note: "Email & SMS platform",
+      source: costSources?.klaviyo ?? "mock",
+    },
+    { label: "COGS", amount: summary.cogs, direction: "out", source: costSources?.cogs ?? "mock" },
+    {
+      label: "Shipping & fulfillment",
+      amount: summary.shipping,
+      direction: "out",
+      source: costSources?.shipping ?? "mock",
+    },
+    {
+      label: "Payment fees",
+      amount: summary.paymentFees,
+      direction: "out",
+      source: costSources?.paymentFees ?? "mock",
+    },
+    {
+      label: "Other expenses",
+      amount: summary.variableExpenses,
+      direction: "out",
+      source: costSources?.otherExpenses ?? "mock",
+    },
+    {
+      label: "Fixed expenses",
+      amount: summary.fixedExpenses,
+      direction: "out",
+      note: "Allocated to this period",
+      source: costSources?.otherExpenses ?? "mock",
+    },
   ];
 
   const isLoss = summary.netProfit < 0;

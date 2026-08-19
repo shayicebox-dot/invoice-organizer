@@ -22,6 +22,8 @@ import {
 import { formatMoney, formatNumber, formatPercent, toMinor } from "@/lib/money";
 import { daysBetween, describeComparison, describeRange, today } from "@/lib/date-range";
 import { resolveViewParams } from "@/lib/view-params";
+import type { CostSource } from "@/lib/business-costs/types";
+import type { BusinessCostStatus } from "@/lib/data";
 
 /** Below this many days the charts widen to a trailing window so they stay readable. */
 const MIN_CHART_DAYS = 7;
@@ -33,7 +35,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
   const view = resolveViewParams(searchParams, stores);
 
   const report = await getLiveRangeReport(view.scope, view.range, view.previous);
-  const { summary, previous, shopify, meta, googleAds } = report;
+  const { summary, previous, shopify, meta, googleAds, costs } = report;
 
   // Each provider labels only the figures it owns. Shopify owns revenue and
   // order counts; Meta owns ad spend; every other cost line is still mock.
@@ -88,7 +90,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
         description={`${view.scopeLabel} · ${view.range.label}. Shopify is the source of truth for revenue; ad platforms and email tools are costs.`}
       />
 
-      <DataSourceBanner shopify={shopify} meta={meta} googleAds={googleAds} />
+      <DataSourceBanner shopify={shopify} meta={meta} googleAds={googleAds} costs={costs} />
 
       {/* KPI row. Net Profit is the hero figure — one per view. */}
       <div className="grid gap-3 lg:grid-cols-12">
@@ -104,6 +106,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             revenueSource === "live",
             metaSource === "live",
             googleSource === "live",
+            costs,
           )}
         />
 
@@ -151,7 +154,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             delta={percentChange(summary.cogs, previous.cogs)}
             deltaCaption={comparison}
             higherIsBetter={false}
-            source="mock"
+            source={costTag(costs.sources.cogs)}
             footnote={`Gross margin ${formatPercent(summary.grossMargin)}`}
           />
           <StatTile
@@ -177,6 +180,13 @@ export default async function OverviewPage(props: PageProps<"/">) {
         revenueSource={revenueSource}
         metaSource={metaSource}
         googleSource={googleSource}
+        costSources={{
+          cogs: costTag(costs.sources.cogs),
+          shipping: costTag(costs.sources.shipping),
+          paymentFees: costTag(costs.sources.paymentFees),
+          klaviyo: costTag(costs.sources.klaviyo),
+          otherExpenses: costTag(costs.sources.otherExpenses),
+        }}
       />
 
       <div className="grid gap-3 xl:grid-cols-2">
@@ -224,19 +234,50 @@ export default async function OverviewPage(props: PageProps<"/">) {
   );
 }
 
+/** Map a cost provenance onto the tag vocabulary the UI uses. */
+function costTag(source: CostSource): "live" | "manual" | "mock" | "missing" {
+  if (source === "live") return "live";
+  if (source === "manual") return "manual";
+  if (source === "incomplete") return "missing";
+  return "mock";
+}
+
 /** One line under the hero figure describing what Net Profit is made of. */
-function netProfitNote(revenueLive: boolean, metaLive: boolean, googleLive: boolean): string {
-  const live: string[] = [];
-  if (revenueLive) live.push("Shopify revenue");
-  if (metaLive) live.push("Meta spend");
-  if (googleLive) live.push("Google Ads spend");
+function netProfitNote(
+  revenueLive: boolean,
+  metaLive: boolean,
+  googleLive: boolean,
+  costs: BusinessCostStatus,
+): string {
+  const real: string[] = [];
+  if (revenueLive) real.push("Shopify revenue");
+  if (metaLive) real.push("Meta spend");
+  if (googleLive) real.push("Google Ads spend");
 
-  if (live.length === 0) return "Every input is mock data.";
+  const costLabels: Array<[CostSource, string]> = [
+    [costs.sources.cogs, "COGS"],
+    [costs.sources.shipping, "shipping"],
+    [costs.sources.paymentFees, "fees"],
+    [costs.sources.klaviyo, "Klaviyo"],
+    [costs.sources.otherExpenses, "expenses"],
+  ];
+  const stillMock = costLabels.filter(([source]) => source === "mock").map(([, label]) => label);
+  const incomplete = costLabels
+    .filter(([source]) => source === "incomplete")
+    .map(([, label]) => label);
+  for (const [source, label] of costLabels) {
+    if (source === "manual" || source === "live") real.push(label);
+  }
 
-  const joined =
-    live.length === 1
-      ? live[0]
-      : `${live.slice(0, -1).join(", ")} and ${live[live.length - 1]}`;
+  if (real.length === 0) return "Every input is mock data.";
 
-  return `Live ${joined}, less mock COGS, shipping, fees and remaining expenses — not yet a true P&L.`;
+  if (incomplete.length > 0) {
+    return `Missing cost data in ${incomplete.join(", ")} — this figure is overstated.`;
+  }
+
+  if (stillMock.length === 0) {
+    return "Every input is real — live provider data and configured business costs.";
+  }
+
+  return `Real inputs for ${real.length} lines; ${stillMock.join(", ")} still mock — not yet a true P&L.`;
 }

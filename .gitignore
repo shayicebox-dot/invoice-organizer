@@ -58,3 +58,7 @@ venv/
 secrets/
 *service-account*.json
 *-key.json
+# Business cost settings written by the app. Root-anchored: an unanchored
+# `data/` would also match src/lib/data and silently drop source files.
+/data/*
+!/data/.gitkeep

@@ -296,6 +296,67 @@ four-cent loss so the regression cannot come back.
 
 ---
 
+## Business Costs
+
+Everything that is not a provider API is configured on the **Business Costs**
+page — no code edits. Each section reports its own provenance:
+
+| Label | Meaning |
+|---|---|
+| `LIVE` | Read from a provider API |
+| `MANUAL` | Configured on the Business Costs page |
+| `MOCK` | Nothing configured — still generated demo data |
+| `MISSING DATA` | Configured, but an input is absent, so the total understates |
+
+### What can be configured
+
+- **Product COGS** — either Shopify's own cost per item, or a per-SKU cost
+  table. Costs carry effective dates, so a price change in March does not
+  rewrite February. COGS is units actually sold in Shopify multiplied by the
+  cost in force on that day.
+- **Shipping & fulfillment** — per-order and per-unit rates, optional per-SKU
+  overrides, and fixed 3PL fees.
+- **Payment fees** — percentage plus flat fee per transaction, per processor,
+  with a share-of-orders split when a store uses more than one.
+- **Klaviyo** — the real subscription cost, prorated across the range.
+- **Other expenses** — monthly, weekly, yearly or one-time, each with a
+  category, start date and optional end date.
+
+### Proration
+
+Monthly amounts are divided across the days of their month, weekly across
+seven days, yearly across the days of the year. The daily shares add back to
+exactly the billed amount, so no cent is invented or lost, and a range that
+covers part of a month is charged only for the days it contains.
+
+Expense categories decide which side of the contribution line a cost sits on:
+rent, payroll, software and professional services are overhead; everything else
+moves with volume. That keeps Contribution Profit meaningful.
+
+### Nothing is silently substituted
+
+An unconfigured section keeps its mock figure and stays labelled `MOCK`. A
+configured section missing an input — a SKU that sold with no cost recorded —
+is labelled `MISSING DATA`, the affected SKUs are named, and the banner says
+the P&L is overstated. The app never invents a plausible rate.
+
+### Storage
+
+Settings live in `data/business-costs.json`, written by Server Actions and
+gitignored. This keeps the settings editable without a database, at the cost of
+needing a writable filesystem — most serverless hosts do not have one. The
+store is behind the same seam as the rest of the data layer, so moving it to
+Supabase is a change inside `src/lib/business-costs/store.ts`.
+
+### Per-SKU COGS needs two extra Shopify scopes
+
+Costing units per SKU reads order line items, which needs `read_products` and
+`read_inventory` on top of `read_orders`. The revenue integration is untouched
+and still works on `read_orders` alone; without the extra scopes COGS simply
+reports as missing.
+
+---
+
 ## Running locally
 
 Requires **Node.js 20.9+** (Node 22 recommended) and npm.

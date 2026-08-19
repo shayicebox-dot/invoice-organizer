@@ -81,6 +81,15 @@ export function ExpensesIcon(props: IconProps) {
   );
 }
 
+export function CostsIcon(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M8 2.5v11" />
+      <path d="M10.8 4.6H6.6a1.9 1.9 0 0 0 0 3.8h2.8a1.9 1.9 0 0 1 0 3.8H5" />
+    </Base>
+  );
+}
+
 export function ConnectionsIcon(props: IconProps) {
   return (
     <Base {...props}>

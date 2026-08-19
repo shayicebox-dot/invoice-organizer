@@ -27,7 +27,10 @@ export function Th({
       scope={scope}
       className={cn(
         "whitespace-nowrap border-b border-line pb-2 text-[11px] font-medium uppercase tracking-[0.04em] text-ink-muted",
-        align === "right" ? "text-right" : "text-left",
+        // Adjacent headers must never run together. Right-aligned headers are
+        // padded on both sides, because the neighbour on either side may also
+        // be right-aligned and contribute no gap of its own.
+        align === "right" ? "px-3 text-right" : "pr-4 text-left",
         className,
       )}
     >
@@ -51,7 +54,8 @@ export function Td({
     <td
       className={cn(
         "whitespace-nowrap border-b border-line/70 py-2.5 text-ink",
-        align === "right" ? "text-right" : "text-left",
+        // Matches the header padding so a column's figures line up with its label.
+        align === "right" ? "px-3 text-right" : "text-left",
         numeric && "tabular",
         className,
       )}
