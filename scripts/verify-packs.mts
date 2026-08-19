@@ -232,12 +232,13 @@ const totalUnits = all.reduce((acc, row) => acc + row.units, 0);
 
 console.log("TOTALS");
 console.log("-".repeat(108));
-console.log(`  units costed        ${totalUnits}`);
+console.log(`  pack quantities costed  ${totalUnits}`);
 console.log(`  product COGS        ${formatMoney(fromMinor(totalCogs))}`);
 console.log(`  shipping/fulfilment ${formatMoney(fromMinor(totalFulfil))}`);
 console.log(`  operational cost    ${formatMoney(fromMinor(totalCogs + totalFulfil))}`);
 console.log(
-  `\n  Note: the ${(model.variableRateOfNetRevenue * 100).toFixed(1)}% of net revenue is applied on top of these,`,
+  `\n  Note: quantities above are line-item pack quantities, not individual boxes.
+  The ${(model.variableRateOfNetRevenue * 100).toFixed(1)}% of net revenue is applied on top of these,`,
 );
 console.log("  and covers payment processing, platform fees and small variable costs.\n");
 

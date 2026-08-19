@@ -145,12 +145,18 @@ export interface CogsLine {
 export interface ShopifyCogsResult {
   lines: CogsLine[];
   /** Per-day totals, ready for the P&L overlay. */
-  byDate: Array<{ date: ISODate; cogs: Money; unitsCosted: number; unitsMissingCost: number }>;
+  byDate: Array<{ date: ISODate; cogs: Money; packQuantitiesCosted: number; packQuantitiesMissingCost: number }>;
   totalCogs: Money;
   /** SKUs that sold but have no cost per item in Shopify. */
   missingCostSkus: string[];
-  /** Units that could not be costed, across the range. */
-  unitsMissingCost: number;
+  /**
+   * Line-item quantities that could not be costed, across the range.
+   *
+   * These are packs, not individual boxes: a quantity of 3 on a 20-pack line
+   * is three packs, sixty boxes. Calling them "units" invited exactly that
+   * confusion.
+   */
+  packQuantitiesMissingCost: number;
   truncated: boolean;
 }
 
@@ -274,23 +280,23 @@ export function summariseCogs(
   missingCostSkus: Set<string>,
   truncated = false,
 ): ShopifyCogsResult {
-  const perDay = new Map<ISODate, { date: ISODate; cogs: Money; unitsCosted: number; unitsMissingCost: number }>();
-  let unitsMissingCost = 0;
+  const perDay = new Map<ISODate, { date: ISODate; cogs: Money; packQuantitiesCosted: number; packQuantitiesMissingCost: number }>();
+  let packQuantitiesMissingCost = 0;
 
   for (const line of lines) {
     const bucket = perDay.get(line.date) ?? {
       date: line.date,
       cogs: ZERO,
-      unitsCosted: 0,
-      unitsMissingCost: 0,
+      packQuantitiesCosted: 0,
+      packQuantitiesMissingCost: 0,
     };
 
     bucket.cogs = add(bucket.cogs, line.lineCogs);
     if (line.unitCost === null) {
-      bucket.unitsMissingCost += line.quantityCosted;
-      unitsMissingCost += line.quantityCosted;
+      bucket.packQuantitiesMissingCost += line.quantityCosted;
+      packQuantitiesMissingCost += line.quantityCosted;
     } else {
-      bucket.unitsCosted += line.quantityCosted;
+      bucket.packQuantitiesCosted += line.quantityCosted;
     }
 
     perDay.set(line.date, bucket);
@@ -303,7 +309,7 @@ export function summariseCogs(
     byDate,
     totalCogs: sum(byDate.map((day) => day.cogs)),
     missingCostSkus: [...missingCostSkus].sort(),
-    unitsMissingCost,
+    packQuantitiesMissingCost,
     truncated,
   };
 }

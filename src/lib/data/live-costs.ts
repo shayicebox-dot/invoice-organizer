@@ -273,7 +273,7 @@ export async function applyBusinessCosts(
   // SKUs Shopify sold but has no cost per item for. Named, never guessed.
   const shopifyMissing = cogsResult.result?.missingCostSkus ?? [];
   if (settings.cogs.mode === "shopify_cost_per_item" && shopifyMissing.length > 0) {
-    const units = cogsResult.result?.unitsMissingCost ?? 0;
+    const units = cogsResult.result?.packQuantitiesMissingCost ?? 0;
     issues.push({
       section: "cogs",
       message:

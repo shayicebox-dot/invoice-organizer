@@ -4,12 +4,26 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DailyPlTable } from "@/components/dashboard/daily-pl-table";
 import { TableFrame, Td, Th } from "@/components/ui/table";
-import { getDailyFinancials, getRangeReport, getStores } from "@/lib/data";
+import { getLiveDailyFinancials, getLiveRangeReport, getStores } from "@/lib/data";
+import { SourceTag } from "@/components/ui/source-tag";
+
 import { type PeriodSummary, percentChange, summarize } from "@/lib/finance";
 import { type Money, formatMoney, formatPercent, ratio } from "@/lib/money";
 import { resolveViewParams } from "@/lib/view-params";
 import { describeComparison } from "@/lib/date-range";
 import { cn } from "@/lib/cn";
+import type { CostSource } from "@/lib/business-costs/types";
+import type { BusinessCostStatus } from "@/lib/data";
+
+/** Map cost provenance onto the tag vocabulary. */
+function costTag(source: CostSource): StatementLine["source"] {
+  if (source === "live") return "live";
+  if (source === "manual_real") return "manual-real";
+  if (source === "manual") return "manual-real";
+  if (source === "incomplete") return "missing";
+  if (source === "not_configured") return "not-configured";
+  return "mock";
+}
 
 export const metadata: Metadata = { title: "Profit & Loss" };
 
@@ -18,25 +32,42 @@ interface StatementLine {
   amount: Money;
   kind: "revenue" | "cost" | "subtotal" | "total";
   note?: string;
+  /** Where the figure came from. Subtotals inherit from their inputs. */
+  source?: "live" | "manual-real" | "mock" | "missing" | "not-configured";
 }
 
-function buildStatement(summary: PeriodSummary): StatementLine[] {
+function buildStatement(
+  summary: PeriodSummary,
+  tag: (source: CostSource) => StatementLine["source"],
+  costs: BusinessCostStatus,
+  shopifyLive: boolean,
+  metaLive: boolean,
+  googleLive: boolean,
+): StatementLine[] {
+  const revenueSource = shopifyLive ? ("live" as const) : ("mock" as const);
+
   return [
-    { label: "Gross sales", amount: summary.grossSales, kind: "revenue", note: "Shopify, before discounts" },
-    { label: "Discounts", amount: summary.discounts, kind: "cost" },
-    { label: "Refunds", amount: summary.refunds, kind: "cost" },
+    { label: "Gross sales", amount: summary.grossSales, kind: "revenue", note: "Shopify, before discounts", source: revenueSource },
+    { label: "Discounts", amount: summary.discounts, kind: "cost", source: revenueSource },
+    { label: "Refunds", amount: summary.refunds, kind: "cost", source: revenueSource },
     { label: "Net sales", amount: summary.netSales, kind: "subtotal" },
 
-    { label: "Cost of goods sold", amount: summary.cogs, kind: "cost" },
+    { label: "Product COGS", amount: summary.cogs, kind: "cost", note: "Pack cost model × Shopify line items", source: tag(costs.sources.cogs) },
     { label: "Gross profit", amount: (summary.netSales - summary.cogs) as Money, kind: "subtotal" },
 
-    { label: "Shipping & fulfillment", amount: summary.shipping, kind: "cost" },
-    { label: "Payment processing fees", amount: summary.paymentFees, kind: "cost" },
-    { label: "Marketing spend", amount: summary.marketingSpend, kind: "cost", note: "Meta, Google, email & SMS" },
-    { label: "Variable expenses", amount: summary.variableExpenses, kind: "cost" },
+    { label: "Shipping & fulfillment", amount: summary.shipping, kind: "cost", note: "Shipping, storage, pick & pack", source: tag(costs.sources.shipping) },
+    ...(summary.paymentFees === 0 && costs.sources.paymentFees === "manual_real"
+      ? []
+      : [{ label: "Payment processing fees", amount: summary.paymentFees, kind: "cost" as const, source: tag(costs.sources.paymentFees) }]),
+    { label: "Meta Ads", amount: summary.metaAdSpend, kind: "cost", source: metaLive ? ("live" as const) : ("mock" as const) },
+    { label: "Google Ads", amount: summary.googleAdSpend, kind: "cost", source: googleLive ? ("live" as const) : ("mock" as const) },
+    { label: "Email & SMS platform", amount: summary.emailSpend, kind: "cost", source: tag(costs.sources.klaviyo) },
+    { label: "Other variable costs", amount: summary.variableExpenses, kind: "cost", note: "5% of net revenue · includes processing", source: tag(costs.sources.otherExpenses) },
     { label: "Contribution profit", amount: summary.contributionProfit, kind: "subtotal" },
 
-    { label: "Fixed expenses", amount: summary.fixedExpenses, kind: "cost", note: "Allocated across the period" },
+    ...(summary.fixedExpenses === 0 && costs.sources.otherExpenses === "manual_real"
+      ? []
+      : [{ label: "Fixed expenses", amount: summary.fixedExpenses, kind: "cost" as const, note: "Allocated across the period", source: tag(costs.sources.otherExpenses) }]),
     { label: "Net profit", amount: summary.netProfit, kind: "total", note: "Operating profit" },
   ];
 }
@@ -46,9 +77,13 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
   const stores = await getStores();
   const view = resolveViewParams(searchParams, stores);
 
-  const report = await getRangeReport(view.scope, view.range, view.previous);
-  const statement = buildStatement(report.summary);
-  const previousStatement = buildStatement(report.previous);
+  const report = await getLiveRangeReport(view.scope, view.range, view.previous);
+  const shopifyLive = report.shopify.state === "connected";
+  const metaLive = report.meta.state === "connected";
+  const googleLive = report.googleAds.state === "connected";
+
+  const statement = buildStatement(report.summary, costTag, report.costs, shopifyLive, metaLive, googleLive);
+  const previousStatement = buildStatement(report.previous, costTag, report.costs, shopifyLive, metaLive, googleLive);
   const comparison = describeComparison(view.range);
 
   const perStore =
@@ -57,7 +92,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
           stores.map(async (store) => ({
             store,
             summary: summarize(
-              await getDailyFinancials(store.id, view.range.start, view.range.end),
+              (await getLiveDailyFinancials(store.id, view.range.start, view.range.end)).days,
             ),
           })),
         )
@@ -114,6 +149,9 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
                           <span className="ml-2 text-[11px] font-normal text-ink-muted">
                             {line.note}
                           </span>
+                        ) : null}
+                        {line.source ? (
+                          <SourceTag source={line.source} className="ml-2 align-middle" />
                         ) : null}
                       </Td>
                       <Td
@@ -201,7 +239,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
         <Card>
           <CardHeader
             title="By store"
-            description="The same period, split by store. Shared overhead is allocated in proportion to each store's net sales."
+            description="The same period, split by store. While a single Shopify store is connected, live revenue and costs are attributed to whichever scope is selected, so this split is indicative only."
           />
           <div className="mt-3">
             <TableFrame>

@@ -176,9 +176,25 @@ the P&L is marked incomplete. List what needs mapping:
 npm run verify:packs -- 2026-08-01 2026-08-10
 ```
 
-It prints every product mapped to each pack size with its units and cost, then
-everything that could not be mapped, and exits non-zero when anything is
-outstanding.
+It prints every product mapped to each pack size with its pack quantities and
+cost, then everything that could not be mapped, and exits non-zero when anything
+is outstanding.
+
+Quantities throughout are **line-item pack quantities**, not individual boxes: a
+quantity of 3 on a 20-pack line is three packs.
+
+Verify the whole ladder end to end:
+
+```bash
+npm run verify:pl -- 2026-07-21 2026-08-19
+```
+
+It prints each source's provenance, then Shopify net revenue down through COGS,
+fulfillment, the 5%, Meta and Google to Net Profit, and asserts the ladder
+reconciles. Exit 2 while anything is still incomplete.
+
+Both the Overview and Profit & Loss read this same path, so the pages and the
+command cannot disagree.
 
 **Klaviyo** contributes $0 and is labelled *Not configured* until a real
 subscription cost is entered — never a mock figure.

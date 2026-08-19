@@ -129,8 +129,8 @@ for (const day of result.byDate) {
   console.log(
     pad(day.date, 14) +
       rpad(formatMoney(day.cogs), 14) +
-      rpad(`${day.unitsCosted} costed`, 16) +
-      rpad(day.unitsMissingCost > 0 ? `${day.unitsMissingCost} missing` : "", 16),
+      rpad(`${day.packQuantitiesCosted} packs costed`, 16) +
+      rpad(day.packQuantitiesMissingCost > 0 ? `${day.packQuantitiesMissingCost} missing` : "", 16),
   );
 }
 
@@ -157,7 +157,7 @@ if (result.missingCostSkus.length > 0) {
   console.log("-".repeat(60));
   for (const sku of result.missingCostSkus) console.log(`  ${sku}`);
   console.log(
-    `\n  ${result.unitsMissingCost} unit(s) could not be costed. COGS understates by an unknown`,
+    `\n  ${result.packQuantitiesMissingCost} pack quantities could not be costed. COGS understates by an unknown`,
   );
   console.log("  amount until a cost per item is set on those variants in Shopify.");
   console.log("  The dashboard marks the P&L incomplete while this is true.\n");

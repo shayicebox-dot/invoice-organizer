@@ -65,7 +65,7 @@ describe("COGS from cost per item", () => {
     );
     assert.equal(toMinor(result.totalCogs), toMinor(fromMajor(40)));
     assert.deepEqual(result.missingCostSkus, ["B"]);
-    assert.equal(result.unitsMissingCost, 100);
+    assert.equal(result.packQuantitiesMissingCost, 100);
   });
 
   it("reverses the cost of units returned to inventory", () => {
@@ -75,7 +75,7 @@ describe("COGS from cost per item", () => {
       new Set(),
     );
     assert.equal(toMinor(result.totalCogs), toMinor(fromMajor(28)));
-    assert.equal(result.byDate[0].unitsCosted, 7);
+    assert.equal(result.byDate[0].packQuantitiesCosted, 7);
   });
 
   it("keeps the cost of a return that was not restocked", () => {
@@ -94,7 +94,7 @@ describe("COGS from cost per item", () => {
       new Set(),
     );
     assert.equal(toMinor(result.totalCogs), 0);
-    assert.equal(result.byDate[0].unitsCosted, 0);
+    assert.equal(result.byDate[0].packQuantitiesCosted, 0);
   });
 
   it("buckets by day and the days sum to the range total", () => {
@@ -123,8 +123,8 @@ describe("COGS from cost per item", () => {
       ],
       new Set(["SKU-1"]),
     );
-    assert.equal(result.byDate[0].unitsMissingCost, 3);
-    assert.equal(result.byDate[0].unitsCosted, 2);
+    assert.equal(result.byDate[0].packQuantitiesMissingCost, 3);
+    assert.equal(result.byDate[0].packQuantitiesCosted, 2);
     assert.equal(toMinor(result.byDate[0].cogs), toMinor(fromMajor(8)));
   });
 

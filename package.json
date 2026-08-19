@@ -12,7 +12,8 @@
     "smoke:google-ads": "tsx --conditions=react-server scripts/smoke-google-ads.mts",
     "test": "node --import tsx --conditions=react-server --test \"tests/*.test.mts\"",
     "verify:cogs": "tsx --conditions=react-server scripts/verify-cogs.mts",
-    "verify:packs": "tsx --conditions=react-server scripts/verify-packs.mts"
+    "verify:packs": "tsx --conditions=react-server scripts/verify-packs.mts",
+    "verify:pl": "tsx --conditions=react-server scripts/verify-pl.mts"
   },
   "dependencies": {
     "google-auth-library": "^11.0.2",
