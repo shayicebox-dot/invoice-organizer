@@ -19,7 +19,7 @@ import { GoogleAdsError } from "../google-ads/client";
 import { getGoogleAdsConfig, missingGoogleAdsEnvNames } from "../google-ads/config";
 import {
   type GoogleAdsAccount,
-  type GoogleAdsDailyMetrics,
+  type GoogleAdsRangeMetrics,
   fetchGoogleAdsAccount,
   fetchGoogleAdsDailyMetrics,
 } from "../google-ads/insights";
@@ -54,7 +54,7 @@ export const GOOGLE_ADS_NOT_CONFIGURED: GoogleAdsStatus = {
 
 interface CacheEntry {
   fetchedAt: number;
-  days: GoogleAdsDailyMetrics[];
+  metrics: GoogleAdsRangeMetrics;
   status: GoogleAdsStatus;
 }
 
@@ -91,10 +91,10 @@ export async function loadGoogleAdsMetrics(
   start: ISODate,
   end: ISODate,
   reportingCurrency: CurrencyCode,
-): Promise<{ days: GoogleAdsDailyMetrics[] | null; status: GoogleAdsStatus }> {
+): Promise<{ metrics: GoogleAdsRangeMetrics | null; status: GoogleAdsStatus }> {
   if (!getGoogleAdsConfig()) {
     return {
-      days: null,
+      metrics: null,
       status: { ...GOOGLE_ADS_NOT_CONFIGURED, missing: missingGoogleAdsEnvNames() },
     };
   }
@@ -102,7 +102,7 @@ export async function loadGoogleAdsMetrics(
   const key = `${start}:${end}:${reportingCurrency}`;
   const cached = cache.get(key);
   if (cached && Date.now() - cached.fetchedAt < TTL_MS) {
-    return { days: cached.days, status: cached.status };
+    return { metrics: cached.metrics, status: cached.status };
   }
 
   try {
@@ -110,7 +110,7 @@ export async function loadGoogleAdsMetrics(
 
     if (account.rawCurrency.toUpperCase() !== reportingCurrency) {
       return {
-        days: null,
+        metrics: null,
         status: {
           ...GOOGLE_ADS_NOT_CONFIGURED,
           state: "error",
@@ -124,7 +124,7 @@ export async function loadGoogleAdsMetrics(
       };
     }
 
-    const days = await fetchGoogleAdsDailyMetrics(start, end);
+    const metrics = await fetchGoogleAdsDailyMetrics(start, end);
 
     const status: GoogleAdsStatus = {
       state: "connected",
@@ -135,15 +135,15 @@ export async function loadGoogleAdsMetrics(
       errorCode: null,
       missing: [],
       lastSyncedAt: new Date().toISOString(),
-      daysReturned: days.length,
+      daysReturned: metrics.days.length,
     };
 
-    cache.set(key, { fetchedAt: Date.now(), days, status });
-    return { days, status };
+    cache.set(key, { fetchedAt: Date.now(), metrics, status });
+    return { metrics, status };
   } catch (error) {
     const { message, errorCode } = describeError(error);
     return {
-      days: null,
+      metrics: null,
       status: {
         ...GOOGLE_ADS_NOT_CONFIGURED,
         state: "error",
@@ -162,12 +162,17 @@ export async function loadGoogleAdsMetrics(
  * Google omits days with no activity, so a day absent from the response spent
  * nothing and is zeroed. That is a real result, not an error — carrying mock
  * spend into it would be a fabricated number.
+ *
+ * The daily amounts come from `fetchGoogleAdsDailyMetrics`, which derives them
+ * so they sum to the range total exactly. `summarize()` adds up these per-day
+ * figures, so that property is what keeps the dashboard's Google Ads total
+ * equal to the raw micro total rather than a few cents below it.
  */
 export function applyGoogleAdsSpend(
   days: readonly DailyFinancials[],
-  liveMetrics: readonly GoogleAdsDailyMetrics[],
+  liveMetrics: GoogleAdsRangeMetrics,
 ): DailyFinancials[] {
-  const byDate = new Map(liveMetrics.map((entry) => [entry.date, entry]));
+  const byDate = new Map(liveMetrics.days.map((entry) => [entry.date, entry]));
 
   return days.map((day) => {
     const live = byDate.get(day.date);

@@ -246,9 +246,24 @@ then **recomputes** `adSpend` and `marketingSpend`. Both ad overlays read the
 other platform's figure off the day, so they compose in either order and
 neither clobbers the other.
 
-Costs arrive as `cost_micros`. They are converted to integer minor units in
-BigInt, rounding half away from zero, so a large account's spend never loses
-precision as a float.
+### Monetary aggregation
+
+Costs arrive as `cost_micros`. Rounding each day to cents and then adding those
+up loses money — ten days each a fraction of a cent short put a verified
+10-day total three cents below the Google Ads UI.
+
+So the range total is summed from the raw micros in BigInt and converted to
+minor units exactly once. The per-day amounts are then derived from the
+*running* micro total, which makes them sum back to that figure exactly while
+each stays within a cent of its own value.
+
+That property matters beyond the totals row: `summarize()` adds up the per-day
+`googleAdSpend` values, so it is what keeps the dashboard's own Google Ads
+total equal to the raw micro total rather than a few cents below it. Daily rows
+stay honest for display, and no total is ever the naive sum of rounded parts.
+
+`npm test` covers this, including a fixture that reproduces the original
+four-cent loss so the regression cannot come back.
 
 ### Security
 

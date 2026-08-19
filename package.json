@@ -8,8 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm run build",
-    "smoke:google-ads": "tsx --conditions=react-server scripts/smoke-google-ads.mts"
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "smoke:google-ads": "tsx --conditions=react-server scripts/smoke-google-ads.mts",
+    "test": "node --import tsx --conditions=react-server --test \"tests/*.test.mts\""
   },
   "dependencies": {
     "google-auth-library": "^11.0.2",

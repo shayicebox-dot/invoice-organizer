@@ -490,7 +490,7 @@ export async function getLiveDailyFinancials(
   let days = mockDays;
   if (shopifyResult.days) days = applyShopifySales(days, shopifyResult.days);
   if (metaResult.days) days = applyMetaSpend(days, metaResult.days);
-  if (googleResult.days) days = applyGoogleAdsSpend(days, googleResult.days);
+  if (googleResult.metrics) days = applyGoogleAdsSpend(days, googleResult.metrics);
 
   return {
     days,
@@ -556,7 +556,7 @@ export async function getLiveTrailingDays(
   let result = mockDays;
   if (shopifyResult.days) result = applyShopifySales(result, shopifyResult.days);
   if (metaResult.days) result = applyMetaSpend(result, metaResult.days);
-  if (googleResult.days) result = applyGoogleAdsSpend(result, googleResult.days);
+  if (googleResult.metrics) result = applyGoogleAdsSpend(result, googleResult.metrics);
   return result;
 }
 
@@ -590,28 +590,21 @@ export async function getLiveChannelPerformance(
 
   const currency = days[0]?.currency ?? "USD";
   const google = await loadGoogleAdsMetrics(start, end, currency);
-  if (!google.days) return { channels, googleAds: google.status };
+  if (!google.metrics) return { channels, googleAds: google.status };
 
-  const totals = google.days.reduce(
-    (acc, day) => {
-      acc.spend = add(acc.spend, day.spend);
-      acc.impressions += day.impressions;
-      acc.clicks += day.clicks;
-      acc.conversions += day.conversions;
-      acc.value = add(acc.value, day.conversionValue);
-      return acc;
-    },
-    { spend: ZERO, impressions: 0, clicks: 0, conversions: 0, value: ZERO },
-  );
+  // Totals come straight off the range object, which converted the raw micro
+  // sum once. Re-adding the per-day figures here would work too, but reading
+  // the authoritative total leaves no room for it to drift.
+  const metrics = google.metrics;
 
   const live: ChannelPerformance = {
     channel: "google_ads",
     label: CHANNEL_LABELS.google_ads,
-    spend: totals.spend,
-    impressions: totals.impressions,
-    clicks: totals.clicks,
-    attributedConversions: totals.conversions,
-    attributedRevenue: totals.value,
+    spend: metrics.totalSpend,
+    impressions: metrics.totalImpressions,
+    clicks: metrics.totalClicks,
+    attributedConversions: metrics.totalConversions,
+    attributedRevenue: metrics.totalConversionValue,
     platformRoas: null,
     shareOfSpend: null,
     cpc: null,

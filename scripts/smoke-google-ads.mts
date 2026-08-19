@@ -53,7 +53,7 @@ console.log("=".repeat(60));
 console.log(`Range: ${start} .. ${end}`);
 console.log("Path : src/lib/data/live-google-ads.ts (the dashboard's own code)\n");
 
-const { days, status } = await loadGoogleAdsMetrics(start, end, "USD");
+const { metrics, status } = await loadGoogleAdsMetrics(start, end, "USD");
 
 console.log(`state        ${status.state}`);
 console.log(`account      ${status.accountName ?? "—"}`);
@@ -62,11 +62,12 @@ console.log(`currency     ${status.currency ?? "—"}`);
 if (status.message) console.log(`message      ${status.message}`);
 if (status.errorCode) console.log(`error code   ${status.errorCode}`);
 
-if (!days) {
+if (!metrics) {
   console.log("\n✗ FAILED — no live data returned. Google Ads would fall back to mock.");
   process.exit(1);
 }
 
+const days = metrics.days;
 console.log(`days         ${days.length}\n`);
 console.log("  DATE          SPEND      IMPR   CLICKS     CONV    CONV VALUE");
 console.log("  " + "-".repeat(62));
@@ -83,11 +84,17 @@ for (const day of days) {
 }
 console.log("  " + "-".repeat(62));
 
-const totalSpend = sum(days.map((day) => day.spend));
-const totalImpressions = days.reduce((acc, day) => acc + day.impressions, 0);
-const totalClicks = days.reduce((acc, day) => acc + day.clicks, 0);
-const totalConversions = days.reduce((acc, day) => acc + day.conversions, 0);
-const totalValue = sum(days.map((day) => day.conversionValue));
+// Authoritative totals: the raw micro sum, converted exactly once.
+const totalSpend = metrics.totalSpend;
+const totalImpressions = metrics.totalImpressions;
+const totalClicks = metrics.totalClicks;
+const totalConversions = metrics.totalConversions;
+const totalValue = metrics.totalConversionValue;
+
+// The daily figures must add back to that total. summarize() sums per-day
+// values, so if this drifts, the dashboard's Overview total drifts with it.
+const naiveDailySum = sum(days.map((day) => day.spend));
+const dailySumMatches = toMinor(naiveDailySum) === toMinor(totalSpend);
 
 console.log(
   "  " +
@@ -101,13 +108,23 @@ console.log(
 
 // --- Overlay: prove the P&L actually moves --------------------------------
 
+console.log(`\nraw cost_micros total   ${metrics.totalSpendMicros.toString()}`);
+console.log(`converted once          ${formatMoney(totalSpend)}`);
+console.log(`sum of daily figures    ${formatMoney(naiveDailySum)}  ${dailySumMatches ? "(matches)" : "(DRIFTED)"}`);
+
+if (!dailySumMatches) {
+  console.log("\n✗ FAILED — daily figures do not sum to the range total.");
+  console.log("  The dashboard sums per-day values, so its total would be wrong too.");
+  process.exit(1);
+}
+
 console.log("\nOverlay effect on the P&L");
 console.log("-".repeat(60));
 
 const mockDays = await getDailyFinancials("all", start, end);
 if (mockDays.length > 0) {
   const before = summarize(mockDays);
-  const after = summarize(applyGoogleAdsSpend(mockDays, days));
+  const after = summarize(applyGoogleAdsSpend(mockDays, metrics));
 
   const row = (label: string, b: string, a: string) =>
     console.log(`  ${label.padEnd(18)} ${b.padStart(14)} -> ${a.padStart(14)}`);

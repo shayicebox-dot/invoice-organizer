@@ -9,6 +9,19 @@
  * Google omits days with no activity entirely rather than returning a zero row.
  * Callers must treat a missing day as zero, not as a failure — see
  * `applyGoogleAdsSpend`.
+ *
+ * ## Why the daily amounts are derived, not rounded independently
+ *
+ * Costs arrive as `cost_micros`. Rounding each day to cents and then adding
+ * those up loses money: ten days each half a cent short lands five cents below
+ * the real total, and the dashboard would disagree with the Google Ads UI for
+ * no visible reason.
+ *
+ * So the range total is computed from the raw micros in BigInt and converted
+ * once. The per-day amounts are then derived from the *running* micro total,
+ * which makes them sum back to that figure exactly while each stays within a
+ * cent of its own true value. Daily rows remain honest for display, and the
+ * P&L total is never the naive sum of rounded parts.
  */
 
 import "server-only";
@@ -35,12 +48,31 @@ export interface GoogleAdsAccount {
 
 export interface GoogleAdsDailyMetrics {
   date: ISODate;
+  /** Raw micros for the day. Exact, and the authoritative figure. */
+  spendMicros: bigint;
+  /**
+   * Display amount for the day, derived so that the days in a range sum
+   * exactly to the range total. Never rounded independently.
+   */
   spend: Money;
   impressions: number;
   clicks: number;
   conversions: number;
   /** Platform-attributed conversion value, in the account currency. */
   conversionValue: Money;
+}
+
+/** A whole range, with totals taken from the raw values rather than the parts. */
+export interface GoogleAdsRangeMetrics {
+  days: GoogleAdsDailyMetrics[];
+  /** Sum of every row's cost_micros, before any rounding. */
+  totalSpendMicros: bigint;
+  /** The single conversion of `totalSpendMicros` to minor units. */
+  totalSpend: Money;
+  totalImpressions: number;
+  totalClicks: number;
+  totalConversions: number;
+  totalConversionValue: Money;
 }
 
 interface CustomerRow {
@@ -76,28 +108,56 @@ function toCurrency(code: string): CurrencyCode | null {
  * would lose precision as a float before it ever reached the P&L.
  */
 export function microsToMinor(micros: string | number | undefined): Money {
-  if (micros === undefined || micros === null || micros === "") return ZERO;
+  return fromMinor(microsToMinorRaw(toMicros(micros)));
+}
 
-  let value: bigint;
+/** Parse a micro amount into BigInt, tolerating a missing or malformed value. */
+export function toMicros(micros: string | number | bigint | undefined): bigint {
+  if (micros === undefined || micros === null || micros === "") return 0n;
   try {
-    value = BigInt(micros);
+    return BigInt(micros);
   } catch {
-    return ZERO;
+    return 0n;
   }
-
-  const negative = value < 0n;
-  const magnitude = negative ? -value : value;
-  const whole = magnitude / MICROS_PER_MINOR_UNIT;
-  const remainder = magnitude % MICROS_PER_MINOR_UNIT;
-  const rounded = remainder * 2n >= MICROS_PER_MINOR_UNIT ? whole + 1n : whole;
-
-  return fromMinor(Number(negative ? -rounded : rounded));
 }
 
 /** A conversion value arrives as a float in account currency, not micros. */
 function valueToMinor(value: number | undefined): Money {
   if (!value || !Number.isFinite(value)) return ZERO;
   return fromMinor(Math.round(value * 100));
+}
+
+/**
+ * Split a series of exact micro amounts into minor units that sum to exactly
+ * the same total as converting the whole series at once.
+ *
+ * Each entry is the difference between successive roundings of the running
+ * total, so the parts always add back to the whole. This is the same idea as
+ * `allocate()` in `lib/money`, applied to a series rather than a single amount.
+ */
+export function allocateMicrosToMinor(amounts: readonly bigint[]): Money[] {
+  const out: Money[] = [];
+  let running = 0n;
+  let previousMinor = 0;
+
+  for (const amount of amounts) {
+    running += amount;
+    const cumulative = microsToMinorRaw(running);
+    out.push(fromMinor(cumulative - previousMinor));
+    previousMinor = cumulative;
+  }
+
+  return out;
+}
+
+/** Micros to minor units as a plain number, rounding half away from zero. */
+function microsToMinorRaw(micros: bigint): number {
+  const negative = micros < 0n;
+  const magnitude = negative ? -micros : micros;
+  const whole = magnitude / MICROS_PER_MINOR_UNIT;
+  const remainder = magnitude % MICROS_PER_MINOR_UNIT;
+  const rounded = remainder * 2n >= MICROS_PER_MINOR_UNIT ? whole + 1n : whole;
+  return Number(negative ? -rounded : rounded);
 }
 
 function toInt(value: string | number | undefined): number {
@@ -138,7 +198,7 @@ export async function fetchGoogleAdsAccount(): Promise<GoogleAdsAccount> {
 export async function fetchGoogleAdsDailyMetrics(
   start: ISODate,
   end: ISODate,
-): Promise<GoogleAdsDailyMetrics[]> {
+): Promise<GoogleAdsRangeMetrics> {
   const config = getGoogleAdsConfig();
   if (!config) throw new GoogleAdsError("Google Ads is not configured.", "config");
 
@@ -155,7 +215,16 @@ export async function fetchGoogleAdsDailyMetrics(
       `FROM customer WHERE segments.date BETWEEN '${start}' AND '${end}'`,
   );
 
-  const byDate = new Map<ISODate, GoogleAdsDailyMetrics>();
+  interface Bucket {
+    date: ISODate;
+    spendMicros: bigint;
+    impressions: number;
+    clicks: number;
+    conversions: number;
+    conversionValueRaw: number;
+  }
+
+  const byDate = new Map<ISODate, Bucket>();
 
   for (const row of rows) {
     const date = row.segments?.date;
@@ -164,24 +233,74 @@ export async function fetchGoogleAdsDailyMetrics(
     const metrics = row.metrics ?? {};
     const bucket = byDate.get(date) ?? {
       date,
-      spend: ZERO,
+      spendMicros: 0n,
       impressions: 0,
       clicks: 0,
       conversions: 0,
-      conversionValue: ZERO,
+      conversionValueRaw: 0,
     };
 
-    bucket.spend = (bucket.spend + microsToMinor(metrics.costMicros)) as Money;
+    // Accumulated as exact micros. No rounding happens per row or per day.
+    bucket.spendMicros += toMicros(metrics.costMicros);
     bucket.impressions += toInt(metrics.impressions);
     bucket.clicks += toInt(metrics.clicks);
     bucket.conversions += Number(metrics.conversions ?? 0);
-    bucket.conversionValue = (bucket.conversionValue +
-      valueToMinor(metrics.conversionsValue)) as Money;
+    bucket.conversionValueRaw += Number(metrics.conversionsValue ?? 0);
 
     byDate.set(date, bucket);
   }
 
-  return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const buckets = [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : 1));
+
+  // Totals come from the raw accumulations, converted exactly once.
+  const totalSpendMicros = buckets.reduce((acc, bucket) => acc + bucket.spendMicros, 0n);
+  const totalConversionValueRaw = buckets.reduce(
+    (acc, bucket) => acc + bucket.conversionValueRaw,
+    0,
+  );
+
+  // Daily display amounts derived from the running total, so they sum to it.
+  const dailySpend = allocateMicrosToMinor(buckets.map((bucket) => bucket.spendMicros));
+  const dailyValue = allocateFloatToMinor(buckets.map((bucket) => bucket.conversionValueRaw));
+
+  const days: GoogleAdsDailyMetrics[] = buckets.map((bucket, index) => ({
+    date: bucket.date,
+    spendMicros: bucket.spendMicros,
+    spend: dailySpend[index],
+    impressions: bucket.impressions,
+    clicks: bucket.clicks,
+    conversions: bucket.conversions,
+    conversionValue: dailyValue[index],
+  }));
+
+  return {
+    days,
+    totalSpendMicros,
+    totalSpend: fromMinor(microsToMinorRaw(totalSpendMicros)),
+    totalImpressions: buckets.reduce((acc, bucket) => acc + bucket.impressions, 0),
+    totalClicks: buckets.reduce((acc, bucket) => acc + bucket.clicks, 0),
+    totalConversions: buckets.reduce((acc, bucket) => acc + bucket.conversions, 0),
+    totalConversionValue: valueToMinor(totalConversionValueRaw),
+  };
+}
+
+/**
+ * The same running-total treatment for conversion value, which Google reports
+ * as a float rather than micros. Keeps the daily rows summing to the total.
+ */
+export function allocateFloatToMinor(amounts: readonly number[]): Money[] {
+  const out: Money[] = [];
+  let running = 0;
+  let previousMinor = 0;
+
+  for (const amount of amounts) {
+    running += amount;
+    const cumulative = Math.round(running * 100);
+    out.push(fromMinor(cumulative - previousMinor));
+    previousMinor = cumulative;
+  }
+
+  return out;
 }
 
 /** Strict `YYYY-MM-DD`, and a real calendar date — not just the right shape. */
