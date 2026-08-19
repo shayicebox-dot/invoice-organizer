@@ -36,6 +36,11 @@ if (existsSync(envPath)) {
 const { getLiveDailyFinancials } = await import("../src/lib/data");
 const { summarize } = await import("../src/lib/finance");
 const { formatMoney, formatPercent, toMinor, fromMinor } = await import("../src/lib/money");
+const { getShopifyConfig } = await import("../src/lib/shopify/config");
+const { fetchShopInfo } = await import("../src/lib/shopify/orders");
+const { fetchShopifyCogs } = await import("../src/lib/shopify/cogs");
+const { readSettings } = await import("../src/lib/business-costs/store");
+const { costLine } = await import("../src/lib/business-costs/pack-model");
 
 const [startArg, endArg] = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 
@@ -70,6 +75,91 @@ console.log(`  Shipping/fulfillment ${label(status.costs.sources.shipping)}`);
 console.log(`  Other variable       ${label(status.costs.sources.otherExpenses)}`);
 console.log(`  Klaviyo              ${label(status.costs.sources.klaviyo)}`);
 
+// --- Pack quantities ------------------------------------------------------
+
+/**
+ * Pack quantities sold, by pack size. Read separately from the same Shopify
+ * data the P&L used, so the split can be reconciled against the totals below.
+ */
+const packTotals = new Map<number, { quantity: number; cogs: number; fulfillment: number }>();
+let unmappedQuantity = 0;
+const unmappedNames = new Set<string>();
+
+if (getShopifyConfig()) {
+  try {
+    const settings = await readSettings();
+    const shop = await fetchShopInfo();
+    // includeUnitCost: false keeps this to read_orders + read_products.
+    const cogs = await fetchShopifyCogs(start, end, shop, { includeUnitCost: false });
+
+    for (const line of cogs.lines) {
+      const costed = costLine(settings.packModel, line.date, line.quantityCosted, {
+        sku: line.sku,
+        title: line.title,
+        variantTitle: line.variantTitle,
+      });
+
+      if (costed.packSize === null) {
+        if (line.quantityCosted > 0) {
+          unmappedQuantity += line.quantityCosted;
+          unmappedNames.add(`${line.sku || "—"} · ${line.title}`);
+        }
+        continue;
+      }
+
+      const bucket = packTotals.get(costed.packSize) ?? { quantity: 0, cogs: 0, fulfillment: 0 };
+      bucket.quantity += line.quantityCosted;
+      bucket.cogs += toMinor(costed.productCogs);
+      bucket.fulfillment += toMinor(costed.fulfillment);
+      packTotals.set(costed.packSize, bucket);
+    }
+  } catch (error) {
+    console.log(
+      `\n⚠ Could not read pack quantities: ${error instanceof Error ? error.message : error}`,
+    );
+  }
+}
+
+if (packTotals.size > 0 || unmappedQuantity > 0) {
+  console.log("\nPack quantities sold");
+  console.log("-".repeat(72));
+  console.log(
+    `  ${"PACK".padEnd(12)}${"QUANTITY".padStart(10)}${"COGS".padStart(16)}${"FULFILLMENT".padStart(16)}`,
+  );
+
+  let totalQuantity = 0;
+  let totalCogs = 0;
+  let totalFulfil = 0;
+
+  for (const size of [10, 20, 50]) {
+    const bucket = packTotals.get(size);
+    if (!bucket) continue;
+    totalQuantity += bucket.quantity;
+    totalCogs += bucket.cogs;
+    totalFulfil += bucket.fulfillment;
+    console.log(
+      `  ${`${size} pack`.padEnd(12)}${String(bucket.quantity).padStart(10)}` +
+        `${formatMoney(fromMinor(bucket.cogs)).padStart(16)}` +
+        `${formatMoney(fromMinor(bucket.fulfillment)).padStart(16)}`,
+    );
+  }
+
+  console.log("  " + "-".repeat(52));
+  console.log(
+    `  ${"TOTAL".padEnd(12)}${String(totalQuantity).padStart(10)}` +
+      `${formatMoney(fromMinor(totalCogs)).padStart(16)}` +
+      `${formatMoney(fromMinor(totalFulfil)).padStart(16)}`,
+  );
+  console.log(
+    `\n  Quantities are line-item pack quantities, not individual boxes.`,
+  );
+
+  if (unmappedQuantity > 0) {
+    console.log(`\n  ⚠ ${unmappedQuantity} pack quantit${unmappedQuantity === 1 ? "y" : "ies"} unmapped:`);
+    for (const name of unmappedNames) console.log(`      ${name}`);
+  }
+}
+
 // --- The ladder -----------------------------------------------------------
 
 const row = (label: string, amount: number, sign: "+" | "-" | "=" = "-") =>
@@ -92,11 +182,15 @@ row("Meta Ads spend", toMinor(summary.metaAdSpend));
 row("Google Ads spend", toMinor(summary.googleAdSpend));
 if (toMinor(summary.paymentFees) !== 0) row("Payment fees", toMinor(summary.paymentFees));
 if (toMinor(summary.emailSpend) !== 0) row("Email & SMS platform", toMinor(summary.emailSpend));
-if (toMinor(summary.fixedExpenses) !== 0) row("Fixed expenses", toMinor(summary.fixedExpenses));
 console.log("-".repeat(72));
+console.log(`  = ${"CONTRIBUTION PROFIT".padEnd(30)} ${formatMoney(summary.contributionProfit).padStart(15)}`);
+if (toMinor(summary.fixedExpenses) !== 0) {
+  row("Fixed expenses", toMinor(summary.fixedExpenses));
+  console.log("-".repeat(72));
+}
 console.log(`  = ${"NET PROFIT".padEnd(30)} ${formatMoney(summary.netProfit).padStart(15)}`);
 console.log(`    ${"Net margin".padEnd(30)} ${formatPercent(summary.netMargin).padStart(15)}`);
-console.log(`    ${"Contribution profit".padEnd(30)} ${formatMoney(summary.contributionProfit).padStart(15)}`);
+console.log(`    ${"Contribution margin".padEnd(30)} ${formatPercent(summary.contributionMargin).padStart(15)}`);
 
 // --- Integrity ------------------------------------------------------------
 
