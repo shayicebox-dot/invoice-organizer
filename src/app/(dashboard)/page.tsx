@@ -33,10 +33,13 @@ export default async function OverviewPage(props: PageProps<"/">) {
   const view = resolveViewParams(searchParams, stores);
 
   const report = await getLiveRangeReport(view.scope, view.range, view.previous);
-  const { summary, previous, shopify } = report;
-  const isLive = shopify.state === "connected";
-  /** Revenue and order counts follow Shopify; every cost line is still mock. */
-  const revenueSource = isLive ? "live" : "mock";
+  const { summary, previous, shopify, meta } = report;
+
+  // Each provider labels only the figures it owns. Shopify owns revenue and
+  // order counts; Meta owns ad spend; every other cost line is still mock.
+  const revenueSource = shopify.state === "connected" ? "live" : "mock";
+  const adSpendSource = meta.state === "connected" ? "live" : "mock";
+  const anyLive = revenueSource === "live" || adSpendSource === "live";
 
   const selectedDayCount = daysBetween(view.range.start, view.range.end);
   const usesTrailingWindow = selectedDayCount < MIN_CHART_DAYS;
@@ -75,7 +78,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
         description={`${view.scopeLabel} · ${view.range.label}. Shopify is the source of truth for revenue; ad platforms and email tools are costs.`}
       />
 
-      <DataSourceBanner status={shopify} />
+      <DataSourceBanner shopify={shopify} meta={meta} />
 
       {/* KPI row. Net Profit is the hero figure — one per view. */}
       <div className="grid gap-3 lg:grid-cols-12">
@@ -87,11 +90,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
           deltaCaption={comparison}
           marginLabel={formatPercent(summary.netMargin)}
           contributionLabel={formatMoney(summary.contributionProfit, summary.currency)}
-          note={
-            isLive
-              ? "Live Shopify revenue less mock costs — not yet a true P&L."
-              : "Every input is mock data."
-          }
+          note={netProfitNote(revenueSource === "live", adSpendSource === "live")}
         />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:col-span-8 xl:grid-cols-3">
@@ -109,8 +108,8 @@ export default async function OverviewPage(props: PageProps<"/">) {
             delta={percentChange(summary.adSpend, previous.adSpend)}
             deltaCaption={comparison}
             higherIsBetter={false}
-            source="mock"
-            footnote={`Meta ${formatMoney(summary.metaAdSpend, summary.currency, { compact: true })} · Google ${formatMoney(summary.googleAdSpend, summary.currency, { compact: true })}`}
+            source={adSpendSource === "live" ? "blend" : "mock"}
+            footnote={`Meta ${formatMoney(summary.metaAdSpend, summary.currency, { compact: true })} ${adSpendSource === "live" ? "live" : "mock"} · Google ${formatMoney(summary.googleAdSpend, summary.currency, { compact: true })} mock`}
           />
           <StatTile
             label="Orders"
@@ -151,7 +150,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             }
             deltaCaption={comparison}
             deltaUnit="points"
-            source={isLive ? "blend" : "mock"}
+            source={anyLive ? "blend" : "mock"}
             footnote={`Contribution margin ${formatPercent(summary.contributionMargin)}`}
           />
         </div>
@@ -162,6 +161,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
         caption={`${view.scopeLabel} · ${view.range.label}`}
         summary={summary}
         revenueSource={revenueSource}
+        metaSource={adSpendSource}
       />
 
       <div className="grid gap-3 xl:grid-cols-2">
@@ -207,4 +207,18 @@ export default async function OverviewPage(props: PageProps<"/">) {
       </Card>
     </div>
   );
+}
+
+/** One line under the hero figure describing what Net Profit is made of. */
+function netProfitNote(revenueLive: boolean, adSpendLive: boolean): string {
+  if (revenueLive && adSpendLive) {
+    return "Live Shopify revenue and live Meta spend, less mock COGS, shipping, fees and expenses — not yet a true P&L.";
+  }
+  if (revenueLive) {
+    return "Live Shopify revenue less mock costs — not yet a true P&L.";
+  }
+  if (adSpendLive) {
+    return "Live Meta spend against mock revenue — not yet a true P&L.";
+  }
+  return "Every input is mock data.";
 }

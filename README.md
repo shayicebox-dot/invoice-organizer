@@ -54,21 +54,26 @@ for reconciliation and excluded from revenue.
 
 ---
 
-## Status: Phase 2 — Shopify connected
+## Status: Phase 2 — Shopify and Meta Ads connected
 
-The dashboard runs on **deterministic mock data**, except for Shopify revenue on
-the Overview page, which is read live from the Shopify Admin GraphQL API.
+The dashboard runs on **deterministic mock data**, except for Shopify revenue
+and Meta Ads spend on the Overview page, which are read live from their APIs.
 
 | Metric | Source |
 |---|---|
 | Gross sales, discounts, refunds, orders, units sold | **Live Shopify** (Overview only) |
+| Meta Ads spend | **Live Meta** (Overview only) |
+| Google Ads, Klaviyo | Mock |
 | COGS, shipping & fulfillment, payment fees | Mock |
-| Meta Ads, Google Ads, Klaviyo | Mock |
 | Variable and fixed expenses | Mock |
 
-Because Net Profit subtracts mock costs from real revenue, **it is structurally
-correct but not yet accurate**. Every figure on the Overview carries a `Live` or
-`Mock` tag, and the banner at the top of the page says the same in words.
+Because Net Profit still subtracts mock COGS, shipping, fees and expenses,
+**it is structurally correct but not yet accurate**. Every figure on the
+Overview carries a `Live`, `Mock` or `Mixed` tag, and the banner at the top of
+the page says the same in words.
+
+Each provider is independent: Shopify can be live while Meta is unavailable, and
+the banner reports them separately.
 
 Only the Overview reads live data. Profit & Loss, Orders, Products, Marketing
 and Expenses remain fully mock, so the two can be compared side by side.
@@ -134,6 +139,61 @@ the client refreshes once and retries. Requests time out after 15 seconds.
   the banner warns that the period is incomplete.
 - **Order-level pages still mock.** The Orders page lists mock orders; only the
   Overview aggregates are live.
+
+---
+
+## Connecting Meta Ads
+
+Put a token with the **`ads_read`** permission and the ad account id in
+`.env.local`:
+
+```bash
+META_ACCESS_TOKEN="..."
+META_AD_ACCOUNT_ID="act_1234567890"   # or just 1234567890
+```
+
+Restart the dev server. Meta Ads shows as **Live** in the Overview banner and
+**Connected** on the Connections page.
+
+### How it works
+
+`src/lib/meta/insights.ts` calls `/act_{id}/insights` with `level=account` and
+`time_increment=1`, which returns one row per day for the selected range — the
+daily granularity the P&L needs. A single range total could not be spread
+across days without inventing a distribution.
+
+The overlay in `src/lib/data/live-meta.ts` replaces `metaAdSpend` and then
+**recomputes** `adSpend` and `marketingSpend`. The profit ladder consumes
+`marketingSpend`, so replacing only the Meta field would leave Net Profit
+unchanged and the page silently wrong.
+
+### Security
+
+- The token is sent as an `Authorization: Bearer` header, never as an
+  `access_token` query parameter. A token in a URL ends up in proxy logs,
+  server access logs and browser history.
+- Meta embeds the token in the `paging.next` URLs it returns. The client
+  **strips it** before following the cursor, so pagination cannot carry the
+  credential into a log.
+- `server-only` on the client, insights and overlay modules, so importing any
+  of them from a client component is a build error.
+- Nothing is prefixed `NEXT_PUBLIC_`; no token reaches the browser bundle.
+
+### Known limitations
+
+- **Currency must match.** If the ad account bills in a different currency than
+  the dashboard reports in, Meta spend falls back to mock and the banner says
+  why. Subtracting EUR spend from USD revenue would produce a Net Profit that
+  looks plausible and is wrong. Converting needs a daily FX rate table.
+- **Timezone.** Meta buckets days in the *ad account* timezone; Shopify buckets
+  in the *store* timezone. If they differ, a day boundary can disagree by a few
+  hours of spend. Both timezones are disclosed in the UI.
+- **Attribution is not revenue.** Only `spend` is read. Meta's attributed
+  conversions and revenue are deliberately not used — Shopify remains the sole
+  source of revenue.
+- **API version.** Meta retires versions on a rolling schedule. If it reports an
+  unsupported version, set `META_API_VERSION`.
+- **Overview only.** The Marketing page still shows mock channel data.
 
 ---
 

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/page-header";
 import { CategorySection, ConnectionCard } from "@/components/dashboard/connection-card";
 import { InfoIcon } from "@/components/ui/icons";
-import { getConnections, getShopifyStatus } from "@/lib/data";
+import { getConnections, getMetaStatus, getShopifyStatus } from "@/lib/data";
 import {
   PROVIDERS,
   PROVIDER_CATEGORY_DESCRIPTIONS,
@@ -22,7 +22,11 @@ const CATEGORY_ORDER: ProviderCategory[] = [
 ];
 
 export default async function ConnectionsPage() {
-  const [connections, shopify] = await Promise.all([getConnections(), getShopifyStatus()]);
+  const [connections, shopify, meta] = await Promise.all([
+    getConnections(),
+    getShopifyStatus(),
+    getMetaStatus(),
+  ]);
   const byProvider = new Map(connections.map((connection) => [connection.provider, connection]));
 
   // Shopify is the one provider with a real integration; its card reflects the
@@ -38,11 +42,29 @@ export default async function ConnectionsPage() {
             ? "error"
             : "disconnected",
       accountLabel: shopify.shopDomain ?? shopify.shopName,
-      lastSyncedAt: shopify.lastSyncedAt
-        ? new Date(shopify.lastSyncedAt).toISOString().replace("T", " ").slice(0, 16) + " UTC"
-        : null,
+      lastSyncedAt: formatSyncedAt(shopify.lastSyncedAt),
     });
   }
+
+  const metaConnection = byProvider.get("meta_ads");
+  if (metaConnection) {
+    byProvider.set("meta_ads", {
+      ...metaConnection,
+      status:
+        meta.state === "connected"
+          ? "connected"
+          : meta.state === "error"
+            ? "error"
+            : "disconnected",
+      accountLabel: meta.accountName,
+      lastSyncedAt: formatSyncedAt(meta.lastSyncedAt),
+    });
+  }
+
+  const liveProviders = [
+    shopify.state === "connected" ? "Shopify" : null,
+    meta.state === "connected" ? "Meta Ads" : null,
+  ].filter((entry): entry is string => entry !== null);
 
   return (
     <div className="space-y-6">
@@ -51,17 +73,16 @@ export default async function ConnectionsPage() {
         description="Connect the places money comes in and goes out. Shopify supplies revenue; every other provider supplies a cost."
       />
 
-      {shopify.state === "connected" ? (
+      {liveProviders.length > 0 ? (
         <p className="flex items-start gap-2 rounded-md border border-emerald-200 bg-positive-soft px-3.5 py-3 text-[12.5px] leading-5 text-ink-secondary">
           <InfoIcon className="mt-0.5 shrink-0 text-positive" width={15} height={15} />
           <span>
             <strong className="font-semibold text-ink">
-              Shopify is live on {shopify.shopName ?? shopify.shopDomain}.
+              {liveProviders.join(" and ")} {liveProviders.length > 1 ? "are" : "is"} live.
             </strong>{" "}
-            Revenue, discounts, refunds, orders and units on the Overview come from the Admin
-            GraphQL API. Credentials are read from the server environment and the access token
-            stays server-side — it is never sent to the browser. Every other provider below is
-            still a placeholder.
+            Shopify supplies revenue, refunds, orders and units; Meta Ads supplies ad spend. Both
+            read from the server environment, and neither credential is ever sent to the browser.
+            Every other provider below is still a placeholder.
           </span>
         </p>
       ) : (
@@ -69,14 +90,24 @@ export default async function ConnectionsPage() {
           <InfoIcon className="mt-0.5 shrink-0 text-ink-muted" width={15} height={15} />
           <span>
             <strong className="font-semibold text-ink">Placeholders for now.</strong> The Connect
-            buttons are inactive while the dashboard runs on demo data. Shopify is the exception:
-            it reads real data as soon as its credentials are present in the server environment.
-            {shopify.state === "error" && shopify.message ? (
-              <span className="mt-1 block text-negative">{shopify.message}</span>
-            ) : null}
+            buttons are inactive while the dashboard runs on demo data. Shopify and Meta Ads are
+            the exceptions: they read real data as soon as their credentials are present in the
+            server environment.
           </span>
         </p>
       )}
+
+      {shopify.state === "error" && shopify.message ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12.5px] leading-5 text-ink-secondary">
+          <span className="font-semibold text-ink">Shopify:</span> {shopify.message}
+        </p>
+      ) : null}
+
+      {meta.state === "error" && meta.message ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12.5px] leading-5 text-ink-secondary">
+          <span className="font-semibold text-ink">Meta Ads:</span> {meta.message}
+        </p>
+      ) : null}
 
       <div className="space-y-8">
         {CATEGORY_ORDER.map((category) => {
@@ -108,4 +139,10 @@ export default async function ConnectionsPage() {
       </div>
     </div>
   );
+}
+
+/** Render a sync timestamp without pulling in a date library. */
+function formatSyncedAt(value: string | null): string | null {
+  if (!value) return null;
+  return `${new Date(value).toISOString().replace("T", " ").slice(0, 16)} UTC`;
 }

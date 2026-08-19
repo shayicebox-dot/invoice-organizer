@@ -24,12 +24,15 @@ export function MoneyFlow({
   caption,
   summary,
   revenueSource = "mock",
+  metaSource = "mock",
 }: {
   title: string;
   caption: string;
   summary: PeriodSummary;
-  /** Where the revenue lines came from. Costs are always mock in this phase. */
+  /** Where the revenue lines came from. */
   revenueSource?: DataSource;
+  /** Where the Meta Ads line came from. Every other cost is still mock. */
+  metaSource?: DataSource;
 }) {
   const inflows: FlowLine[] = [
     {
@@ -44,7 +47,7 @@ export function MoneyFlow({
   ];
 
   const outflows: FlowLine[] = [
-    { label: "Meta Ads", amount: summary.metaAdSpend, direction: "out", source: "mock" },
+    { label: "Meta Ads", amount: summary.metaAdSpend, direction: "out", source: metaSource },
     { label: "Google Ads", amount: summary.googleAdSpend, direction: "out", source: "mock" },
     { label: "Klaviyo", amount: summary.emailSpend, direction: "out", note: "Email & SMS platform", source: "mock" },
     { label: "COGS", amount: summary.cogs, direction: "out", source: "mock" },

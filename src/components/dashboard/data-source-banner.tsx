@@ -1,87 +1,161 @@
 /**
  * States plainly which parts of the page are real.
  *
- * The dashboard is mid-migration: Shopify revenue can be live while every cost
- * line is still mock. That makes Net Profit a blend, and a blended profit
- * figure is easy to misread as a real one — so the banner says so explicitly
- * rather than leaving the reader to infer it from the tags.
+ * The dashboard mixes live and mock inputs while integrations land one at a
+ * time, so every figure on screen has to say which it is. Each provider
+ * reports independently — Shopify can be live while Meta has failed — and the
+ * banner always closes on what that combination means for Net Profit, because
+ * a blended profit figure is easy to mistake for a real one.
  */
+import type { ReactNode } from "react";
+
 import { Badge } from "@/components/ui/badge";
 import { InfoIcon } from "@/components/ui/icons";
-import type { ShopifyStatus } from "@/lib/data";
+import type { MetaStatus, ShopifyStatus } from "@/lib/data";
+import { cn } from "@/lib/cn";
 
-export function DataSourceBanner({ status }: { status: ShopifyStatus }) {
-  if (status.state === "connected") {
-    return (
-      <div className="rounded-md border border-emerald-200 bg-positive-soft px-3.5 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone="positive">Shopify connected</Badge>
-          <span className="text-[12.5px] font-medium text-ink">
-            {status.shopName ?? status.shopDomain}
-          </span>
-          {status.timezone ? (
-            <span className="text-[11.5px] text-ink-muted">
-              Days bucketed in {status.timezone}
-            </span>
-          ) : null}
-        </div>
+export function DataSourceBanner({
+  shopify,
+  meta,
+}: {
+  shopify: ShopifyStatus;
+  meta: MetaStatus;
+}) {
+  const anyLive = shopify.state === "connected" || meta.state === "connected";
+  const anyError = shopify.state === "error" || meta.state === "error";
 
-        <p className="mt-2 text-[12px] leading-5 text-ink-secondary">
-          <strong className="font-semibold text-ink">Live:</strong> gross sales, discounts,
-          refunds, orders and units — read from the Shopify Admin API.{" "}
-          <strong className="font-semibold text-ink">Still mock:</strong> COGS, shipping,
-          payment fees, Meta, Google, Klaviyo and all expenses.
-        </p>
-
-        <p className="mt-1.5 text-[12px] leading-5 text-ink-secondary">
-          Net Profit and every margin therefore mix real revenue with placeholder costs.{" "}
-          <strong className="font-semibold text-ink">Treat them as structural, not accurate</strong>{" "}
-          until the cost integrations land.
-        </p>
-
-        {status.truncated ? (
-          <p className="mt-1.5 text-[12px] leading-5 text-negative">
-            This period exceeded the order page limit, so the totals are incomplete. Narrow the
-            date range for a complete read.
-          </p>
-        ) : null}
-      </div>
-    );
+  const liveFields: string[] = [];
+  if (shopify.state === "connected") {
+    liveFields.push("gross sales, discounts, refunds, orders and units");
   }
+  if (meta.state === "connected") liveFields.push("Meta Ads spend");
 
-  if (status.state === "error") {
-    return (
-      <div className="rounded-md border border-red-200 bg-negative-soft px-3.5 py-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge tone="negative">Shopify unavailable</Badge>
-          <span className="text-[12.5px] text-ink">Showing mock data for every figure.</span>
-        </div>
-        {status.message ? (
-          <p className="mt-2 text-[12px] leading-5 text-ink-secondary">{status.message}</p>
-        ) : null}
-      </div>
-    );
-  }
+  const mockFields = [
+    shopify.state === "connected" ? null : "revenue and orders",
+    meta.state === "connected" ? null : "Meta Ads",
+    "Google Ads",
+    "Klaviyo",
+    "COGS",
+    "shipping",
+    "payment fees",
+    "all other expenses",
+  ].filter((entry): entry is string => entry !== null);
 
   return (
-    <p className="flex items-start gap-2 rounded-md border border-line bg-surface px-3.5 py-3 text-[12.5px] leading-5 text-ink-secondary">
-      <InfoIcon className="mt-0.5 shrink-0 text-ink-muted" width={15} height={15} />
-      <span>
-        <strong className="font-semibold text-ink">Every figure on this page is mock data.</strong>{" "}
-        Set <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[11px]">
-          SHOPIFY_STORE_DOMAIN
-        </code>
-        ,{" "}
-        <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[11px]">
-          SHOPIFY_CLIENT_ID
-        </code>{" "}
-        and{" "}
-        <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[11px]">
-          SHOPIFY_CLIENT_SECRET
-        </code>{" "}
-        in <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[11px]">.env.local</code>{" "}
-        to read real revenue and orders.
-      </span>
+    <div
+      className={cn(
+        "rounded-md border px-3.5 py-3",
+        anyLive && !anyError && "border-emerald-200 bg-positive-soft",
+        anyError && "border-amber-200 bg-amber-50",
+        !anyLive && !anyError && "border-line bg-surface",
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <ProviderPill
+          label="Shopify"
+          state={shopify.state}
+          detail={shopify.shopName ?? shopify.shopDomain}
+        />
+        <ProviderPill label="Meta Ads" state={meta.state} detail={meta.accountName} />
+      </div>
+
+      {liveFields.length > 0 ? (
+        <p className="mt-2.5 text-[12px] leading-5 text-ink-secondary">
+          <strong className="font-semibold text-ink">Live:</strong> {liveFields.join(" · ")}.{" "}
+          <strong className="font-semibold text-ink">Still mock:</strong> {mockFields.join(", ")}.
+        </p>
+      ) : (
+        <p className="mt-2.5 flex items-start gap-2 text-[12px] leading-5 text-ink-secondary">
+          <InfoIcon className="mt-0.5 shrink-0 text-ink-muted" width={14} height={14} />
+          <span>
+            <strong className="font-semibold text-ink">
+              Every figure on this page is mock data.
+            </strong>{" "}
+            Set the Shopify and Meta variables in{" "}
+            <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[11px]">
+              .env.local
+            </code>{" "}
+            to read real revenue and ad spend.
+          </span>
+        </p>
+      )}
+
+      {anyLive ? (
+        <p className="mt-1.5 text-[12px] leading-5 text-ink-secondary">
+          Net Profit and every margin therefore mix real inputs with placeholder costs.{" "}
+          <strong className="font-semibold text-ink">
+            Treat them as structural, not accurate
+          </strong>{" "}
+          until the remaining integrations land.
+        </p>
+      ) : null}
+
+      <Problems shopify={shopify} meta={meta} />
+    </div>
+  );
+}
+
+function Problems({ shopify, meta }: { shopify: ShopifyStatus; meta: MetaStatus }) {
+  const notes: ReactNode[] = [];
+
+  if (shopify.state === "error" && shopify.message) {
+    notes.push(<Note key="shopify-error" label="Shopify" text={shopify.message} />);
+  }
+  if (meta.state === "error" && meta.message) {
+    notes.push(<Note key="meta-error" label="Meta Ads" text={meta.message} />);
+  }
+  if (shopify.truncated) {
+    notes.push(
+      <Note
+        key="shopify-truncated"
+        label="Shopify"
+        text="This period exceeded the order page limit, so revenue is incomplete. Narrow the date range for a complete read."
+      />,
+    );
+  }
+  if (meta.truncated) {
+    notes.push(
+      <Note
+        key="meta-truncated"
+        label="Meta Ads"
+        text="This period exceeded the insights page limit, so ad spend is incomplete."
+      />,
+    );
+  }
+
+  if (notes.length === 0) return null;
+  return <div className="mt-2 space-y-1">{notes}</div>;
+}
+
+function Note({ label, text }: { label: string; text: string }) {
+  return (
+    <p className="text-[12px] leading-5 text-ink-secondary">
+      <span className="font-semibold text-ink">{label}:</span> {text}
     </p>
+  );
+}
+
+function ProviderPill({
+  label,
+  state,
+  detail,
+}: {
+  label: string;
+  state: "connected" | "not_configured" | "error";
+  detail: string | null;
+}) {
+  const tone = state === "connected" ? "positive" : state === "error" ? "warning" : "neutral";
+  const text =
+    state === "connected" ? "Live" : state === "error" ? "Unavailable" : "Not connected";
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Badge tone={tone}>
+        {label} · {text}
+      </Badge>
+      {state === "connected" && detail ? (
+        <span className="text-[11.5px] text-ink-muted">{detail}</span>
+      ) : null}
+    </span>
   );
 }

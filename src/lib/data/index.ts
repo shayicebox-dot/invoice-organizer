@@ -43,6 +43,12 @@ import {
   loadShopifySales,
   probeShopifyStatus,
 } from "./live-shopify";
+import {
+  type MetaStatus,
+  applyMetaSpend,
+  loadMetaSpend,
+  probeMetaStatus,
+} from "./live-meta";
 
 export const ALL_STORES = "all" as const;
 
@@ -429,23 +435,42 @@ export async function getExpenseBreakdown(
 // reading pure mock data until its own integration lands.
 // ---------------------------------------------------------------------------
 
-/** Daily records with real Shopify revenue and orders overlaid, when available. */
+/** The live-source state behind a set of daily records. */
+export interface LiveSourceStatus {
+  shopify: ShopifyStatus;
+  meta: MetaStatus;
+}
+
+/**
+ * Daily records with every available live source overlaid.
+ *
+ * The overlays are applied in sequence, each replacing only its own fields:
+ * Shopify owns revenue and order counts, Meta owns ad spend. Everything a
+ * provider does not own is left exactly as the mock generator produced it.
+ */
 export async function getLiveDailyFinancials(
   scope: StoreScope,
   start: ISODate,
   end: ISODate,
-): Promise<{ days: DailyFinancials[]; status: ShopifyStatus }> {
-  const [mockDays, live] = await Promise.all([
+): Promise<{ days: DailyFinancials[]; status: LiveSourceStatus }> {
+  const [mockDays, shopifyResult] = await Promise.all([
     getDailyFinancials(scope, start, end),
     loadShopifySales(start, end),
   ]);
 
-  if (!live.days) return { days: mockDays, status: live.status };
-  return { days: applyShopifySales(mockDays, live.days), status: live.status };
+  const currency = mockDays[0]?.currency ?? "USD";
+  const metaResult = await loadMetaSpend(start, end, currency);
+
+  let days = mockDays;
+  if (shopifyResult.days) days = applyShopifySales(days, shopifyResult.days);
+  if (metaResult.days) days = applyMetaSpend(days, metaResult.days);
+
+  return { days, status: { shopify: shopifyResult.status, meta: metaResult.status } };
 }
 
 export interface LiveRangeReport extends RangeReport {
   shopify: ShopifyStatus;
+  meta: MetaStatus;
 }
 
 /**
@@ -468,7 +493,8 @@ export async function getLiveRangeReport(
     days: current.days,
     summary: summarize(current.days),
     previous: summarize(previous.days),
-    shopify: current.status,
+    shopify: current.status.shopify,
+    meta: current.status.meta,
   };
 }
 
@@ -481,16 +507,30 @@ export async function getLiveTrailingDays(
   const mockDays = await getTrailingDays(scope, end, days);
   if (mockDays.length === 0) return mockDays;
 
-  const live = await loadShopifySales(mockDays[0].date, mockDays[mockDays.length - 1].date);
-  if (!live.days) return mockDays;
-  return applyShopifySales(mockDays, live.days);
+  const from = mockDays[0].date;
+  const to = mockDays[mockDays.length - 1].date;
+  const currency = mockDays[0].currency;
+
+  const [shopifyResult, metaResult] = await Promise.all([
+    loadShopifySales(from, to),
+    loadMetaSpend(from, to, currency),
+  ]);
+
+  let result = mockDays;
+  if (shopifyResult.days) result = applyShopifySales(result, shopifyResult.days);
+  if (metaResult.days) result = applyMetaSpend(result, metaResult.days);
+  return result;
 }
 
-/** Connection status for the Connections page. Metadata only, no order sync. */
+/** Connection status for the Connections page. Metadata only, no data sync. */
 export async function getShopifyStatus(): Promise<ShopifyStatus> {
   return probeShopifyStatus();
 }
 
-export { type ShopifyStatus };
+export async function getMetaStatus(): Promise<MetaStatus> {
+  return probeMetaStatus();
+}
+
+export { type ShopifyStatus, type MetaStatus };
 
 export { type DailyFinancials, type PeriodSummary };
