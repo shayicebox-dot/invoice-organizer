@@ -5,7 +5,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatTile } from "@/components/dashboard/kpi-cards";
 import { EmptyRow, TableFrame, Td, Th } from "@/components/ui/table";
 import { InfoIcon } from "@/components/ui/icons";
-import { getChannelPerformance, getRangeReport, getStores } from "@/lib/data";
+import { SourceTag } from "@/components/ui/source-tag";
+import { getLiveChannelPerformance, getRangeReport, getStores } from "@/lib/data";
 import { percentChange } from "@/lib/finance";
 import { type Money, formatMoney, formatMultiple, formatNumber, formatPercent, ratio } from "@/lib/money";
 import { resolveViewParams } from "@/lib/view-params";
@@ -18,10 +19,11 @@ export default async function MarketingPage(props: PageProps<"/marketing">) {
   const stores = await getStores();
   const view = resolveViewParams(searchParams, stores);
 
-  const [report, channels] = await Promise.all([
+  const [report, channelResult] = await Promise.all([
     getRangeReport(view.scope, view.range, view.previous),
-    getChannelPerformance(view.scope, view.range.start, view.range.end),
+    getLiveChannelPerformance(view.scope, view.range.start, view.range.end),
   ]);
+  const { channels, googleAds } = channelResult;
 
   const { summary, previous } = report;
   const comparison = describeComparison(view.range);
@@ -80,23 +82,28 @@ export default async function MarketingPage(props: PageProps<"/marketing">) {
             <thead>
               <tr>
                 <Th>Channel</Th>
+                <Th>Source</Th>
                 <Th align="right">Spend</Th>
                 <Th align="right">Share</Th>
                 <Th align="right">Impressions</Th>
                 <Th align="right">Clicks</Th>
+                <Th align="right">CTR</Th>
                 <Th align="right">CPC</Th>
-                <Th align="right">Attributed conv.</Th>
-                <Th align="right">Attributed rev.</Th>
-                <Th align="right">Platform ROAS</Th>
+                <Th align="right">Conversions</Th>
+                <Th align="right">Conv. value</Th>
+                <Th align="right">ROAS</Th>
               </tr>
             </thead>
             <tbody>
               {channels.length === 0 ? (
-                <EmptyRow colSpan={9}>No marketing spend in this period.</EmptyRow>
+                <EmptyRow colSpan={11}>No marketing spend in this period.</EmptyRow>
               ) : (
                 channels.map((channel) => (
                   <tr key={channel.channel} className="transition-colors hover:bg-surface-muted">
-                    <Td className="pr-6 font-medium">{channel.label}</Td>
+                    <Td className="pr-4 font-medium">{channel.label}</Td>
+                    <Td className="pr-4">
+                      <SourceTag source={channel.source} />
+                    </Td>
                     <Td align="right" numeric>
                       {formatMoney(channel.spend, summary.currency, { whole: true })}
                     </Td>
@@ -110,12 +117,13 @@ export default async function MarketingPage(props: PageProps<"/marketing">) {
                       {formatNumber(channel.clicks)}
                     </Td>
                     <Td align="right" numeric className="text-ink-secondary">
-                      {channel.clicks > 0
-                        ? formatMoney(Math.round(channel.spend / channel.clicks) as Money, summary.currency)
-                        : "—"}
+                      {formatPercent(channel.ctr, 2)}
                     </Td>
                     <Td align="right" numeric className="text-ink-secondary">
-                      {formatNumber(channel.attributedConversions)}
+                      {channel.cpc === null ? "—" : formatMoney(channel.cpc, summary.currency)}
+                    </Td>
+                    <Td align="right" numeric className="text-ink-secondary">
+                      {formatNumber(Math.round(channel.attributedConversions * 100) / 100)}
                     </Td>
                     <Td align="right" numeric className="text-ink-secondary">
                       {formatMoney(channel.attributedRevenue, summary.currency, { whole: true })}
@@ -130,9 +138,14 @@ export default async function MarketingPage(props: PageProps<"/marketing">) {
             {channels.length > 0 ? (
               <tfoot>
                 <tr className="bg-surface-muted">
-                  <Td className="pr-6 font-semibold">Total</Td>
+                  <Td className="pr-4 font-semibold">Total</Td>
+                  <Td />
                   <Td align="right" numeric className="font-semibold">
-                    {formatMoney(summary.marketingSpend, summary.currency, { whole: true })}
+                    {formatMoney(
+                      channels.reduce((acc, channel) => acc + channel.spend, 0) as Money,
+                      summary.currency,
+                      { whole: true },
+                    )}
                   </Td>
                   <Td align="right" numeric>
                     100.0%
@@ -144,9 +157,13 @@ export default async function MarketingPage(props: PageProps<"/marketing">) {
                     {formatNumber(channels.reduce((acc, channel) => acc + channel.clicks, 0))}
                   </Td>
                   <Td align="right" numeric />
+                  <Td align="right" numeric />
                   <Td align="right" numeric>
                     {formatNumber(
-                      channels.reduce((acc, channel) => acc + channel.attributedConversions, 0),
+                      Math.round(
+                        channels.reduce((acc, channel) => acc + channel.attributedConversions, 0) *
+                          100,
+                      ) / 100,
                     )}
                   </Td>
                   <Td align="right" numeric />
@@ -160,9 +177,30 @@ export default async function MarketingPage(props: PageProps<"/marketing">) {
         <p className="mt-4 flex items-start gap-2 rounded-md border border-line bg-surface-muted px-3 py-2.5 text-[12px] leading-5 text-ink-secondary">
           <InfoIcon className="mt-0.5 shrink-0 text-ink-muted" width={14} height={14} />
           <span>
-            Attributed conversions and revenue are what each ad platform claims. They overlap
-            across platforms and are never added to revenue in the P&amp;L. Actual revenue comes
-            from Shopify; ad platforms contribute only spend.
+            Conversions and conversion value are what each ad platform claims. They overlap
+            across platforms and are never added to revenue in the P&amp;L — actual revenue comes
+            from Shopify, and ad platforms contribute only spend.
+            {googleAds.state === "connected" ? (
+              <>
+                {" "}
+                Google Ads figures are live from{" "}
+                <strong className="font-semibold text-ink">
+                  {googleAds.accountName ?? "the connected account"}
+                </strong>
+                , with days bucketed in {googleAds.timeZone ?? "the account time zone"}. Every
+                other channel on this page is still mock.
+              </>
+            ) : googleAds.state === "error" ? (
+              <>
+                {" "}
+                <span className="text-negative">
+                  Google Ads is unavailable, so its row is mock:{" "}
+                  {googleAds.message ?? "the API could not be reached."}
+                </span>
+              </>
+            ) : (
+              " Every channel on this page is mock."
+            )}
           </span>
         </p>
       </Card>

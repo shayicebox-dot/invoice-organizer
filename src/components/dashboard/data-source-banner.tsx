@@ -11,29 +11,33 @@ import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { InfoIcon } from "@/components/ui/icons";
-import type { MetaStatus, ShopifyStatus } from "@/lib/data";
+import type { GoogleAdsStatus, MetaStatus, ShopifyStatus } from "@/lib/data";
 import { cn } from "@/lib/cn";
 
 export function DataSourceBanner({
   shopify,
   meta,
+  googleAds,
 }: {
   shopify: ShopifyStatus;
   meta: MetaStatus;
+  googleAds: GoogleAdsStatus;
 }) {
-  const anyLive = shopify.state === "connected" || meta.state === "connected";
-  const anyError = shopify.state === "error" || meta.state === "error";
+  const states = [shopify.state, meta.state, googleAds.state];
+  const anyLive = states.includes("connected");
+  const anyError = states.includes("error");
 
   const liveFields: string[] = [];
   if (shopify.state === "connected") {
     liveFields.push("gross sales, discounts, refunds, orders and units");
   }
   if (meta.state === "connected") liveFields.push("Meta Ads spend");
+  if (googleAds.state === "connected") liveFields.push("Google Ads spend");
 
   const mockFields = [
     shopify.state === "connected" ? null : "revenue and orders",
     meta.state === "connected" ? null : "Meta Ads",
-    "Google Ads",
+    googleAds.state === "connected" ? null : "Google Ads",
     "Klaviyo",
     "COGS",
     "shipping",
@@ -57,6 +61,11 @@ export function DataSourceBanner({
           detail={shopify.shopName ?? shopify.shopDomain}
         />
         <ProviderPill label="Meta Ads" state={meta.state} detail={meta.accountName} />
+        <ProviderPill
+          label="Google Ads"
+          state={googleAds.state}
+          detail={googleAds.accountName}
+        />
       </div>
 
       {liveFields.length > 0 ? (
@@ -71,7 +80,7 @@ export function DataSourceBanner({
             <strong className="font-semibold text-ink">
               Every figure on this page is mock data.
             </strong>{" "}
-            Set the Shopify and Meta variables in{" "}
+            Set the Shopify, Meta and Google Ads variables in{" "}
             <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[11px]">
               .env.local
             </code>{" "}
@@ -90,12 +99,20 @@ export function DataSourceBanner({
         </p>
       ) : null}
 
-      <Problems shopify={shopify} meta={meta} />
+      <Problems shopify={shopify} meta={meta} googleAds={googleAds} />
     </div>
   );
 }
 
-function Problems({ shopify, meta }: { shopify: ShopifyStatus; meta: MetaStatus }) {
+function Problems({
+  shopify,
+  meta,
+  googleAds,
+}: {
+  shopify: ShopifyStatus;
+  meta: MetaStatus;
+  googleAds: GoogleAdsStatus;
+}) {
   const notes: ReactNode[] = [];
 
   if (shopify.state === "error" && shopify.message) {
@@ -103,6 +120,19 @@ function Problems({ shopify, meta }: { shopify: ShopifyStatus; meta: MetaStatus 
   }
   if (meta.state === "error" && meta.message) {
     notes.push(<Note key="meta-error" label="Meta Ads" text={meta.message} />);
+  }
+  if (googleAds.state === "error" && googleAds.message) {
+    notes.push(
+      <Note
+        key="google-error"
+        label="Google Ads"
+        text={
+          googleAds.errorCode
+            ? `${googleAds.message} (${googleAds.errorCode})`
+            : googleAds.message
+        }
+      />,
+    );
   }
   if (shopify.truncated) {
     notes.push(

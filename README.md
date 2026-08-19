@@ -54,18 +54,23 @@ for reconciliation and excluded from revenue.
 
 ---
 
-## Status: Phase 2 — Shopify and Meta Ads connected
+## Status: Phase 2 — Shopify, Meta Ads and Google Ads connected
 
 The dashboard runs on **deterministic mock data**, except for Shopify revenue
-and Meta Ads spend on the Overview page, which are read live from their APIs.
+and both ad platforms' spend, which are read live from their APIs.
 
 | Metric | Source |
 |---|---|
 | Gross sales, discounts, refunds, orders, units sold | **Live Shopify** (Overview only) |
 | Meta Ads spend | **Live Meta** (Overview only) |
-| Google Ads, Klaviyo | Mock |
+| Google Ads spend | **Live Google Ads** (Overview) |
+| Google Ads impressions, clicks, conversions, value | **Live Google Ads** (Marketing) |
+| Klaviyo | Mock |
 | COGS, shipping & fulfillment, payment fees | Mock |
 | Variable and fixed expenses | Mock |
+
+Ad Spend on the Overview is now live Meta + live Google Ads, and Net Profit,
+Contribution Profit and every margin recompute from those live inputs.
 
 Because Net Profit still subtracts mock COGS, shipping, fees and expenses,
 **it is structurally correct but not yet accurate**. Every figure on the
@@ -194,6 +199,85 @@ unchanged and the page silently wrong.
 - **API version.** Meta retires versions on a rolling schedule. If it reports an
   unsupported version, set `META_API_VERSION`.
 - **Overview only.** The Marketing page still shows mock channel data.
+
+---
+
+## Connecting Google Ads
+
+Add a service account as a **Read Only** user on the Google Ads manager
+account, then put its credentials in `.env.local`:
+
+```bash
+GOOGLE_ADS_DEVELOPER_TOKEN="..."
+GOOGLE_ADS_LOGIN_CUSTOMER_ID="2770007329"     # manager account
+GOOGLE_ADS_CUSTOMER_ID="3230817078"           # account to read
+GOOGLE_ADS_SERVICE_ACCOUNT_KEY_FILE="secrets/google-ads-service-account.json"
+```
+
+`secrets/` is gitignored. **Never commit the key file.**
+
+If the service account cannot be added as a Google Ads user directly, set
+`GOOGLE_ADS_IMPERSONATE_EMAIL` and grant domain-wide delegation for the
+`https://www.googleapis.com/auth/adwords` scope instead.
+
+### Verifying the connection
+
+```bash
+# Raw API check, independent of the app
+node scripts/google-ads-connectivity-test.mjs 2026-08-01 2026-08-10
+
+# The dashboard's own code path, with an expected total
+npm run smoke:google-ads -- 2026-08-01 2026-08-10 2930.08
+```
+
+The smoke test also asserts that the overlay leaves Meta spend, COGS and
+Shopify revenue untouched and that the profit ladder still reconciles.
+
+### How it works
+
+`src/lib/google-ads/client.ts` signs a service account JWT for the `adwords`
+scope and exchanges it for an access token, which `google-auth-library` caches
+and refreshes. Queries go to `googleAds:search` with the `developer-token` and
+`login-customer-id` headers, following `nextPageToken` so a wide range is never
+truncated.
+
+The overlay in `src/lib/data/live-google-ads.ts` replaces `googleAdSpend` and
+then **recomputes** `adSpend` and `marketingSpend`. Both ad overlays read the
+other platform's figure off the day, so they compose in either order and
+neither clobbers the other.
+
+Costs arrive as `cost_micros`. They are converted to integer minor units in
+BigInt, rounding half away from zero, so a large account's spend never loses
+precision as a float.
+
+### Security
+
+- `server-only` on the client, insights and overlay modules — importing any of
+  them from a client component is a build error.
+- The developer token and the service account key are read from the server
+  environment. Nothing is prefixed `NEXT_PUBLIC_`, so nothing reaches the
+  browser bundle.
+- The service account JSON is parsed and handed straight to the JWT signer. Its
+  contents are never stringified into a log or an error message; a failure
+  names the *path*, never the file's contents.
+- Error messages carry Google's own error code and message, which describe the
+  failure without echoing credentials.
+
+### Known limitations
+
+- **Currency must match.** If the Google Ads account bills in a different
+  currency than the dashboard reports in, spend falls back to mock with an
+  explanation, rather than being subtracted from revenue in another currency.
+- **Three time zones.** Google Ads buckets days in the ad account time zone
+  (America/New_York here), Meta in its own ad account zone, and Shopify in the
+  store zone. Where these differ, a day boundary can disagree by a few hours.
+  Each zone is disclosed in the UI.
+- **Zero days are omitted.** Google returns no row for a day with no activity;
+  the overlay treats a missing day as zero spend, never as an error.
+- **Marketing page.** Google Ads is live there; Meta and Klaviyo rows are still
+  mock and labelled as such.
+- **Attribution is not revenue.** Conversions and conversion value are shown for
+  context only. Shopify remains the sole source of revenue.
 
 ---
 

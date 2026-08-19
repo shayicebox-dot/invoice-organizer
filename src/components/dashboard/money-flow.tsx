@@ -25,14 +25,17 @@ export function MoneyFlow({
   summary,
   revenueSource = "mock",
   metaSource = "mock",
+  googleSource = "mock",
 }: {
   title: string;
   caption: string;
   summary: PeriodSummary;
   /** Where the revenue lines came from. */
   revenueSource?: DataSource;
-  /** Where the Meta Ads line came from. Every other cost is still mock. */
+  /** Where the Meta Ads line came from. */
   metaSource?: DataSource;
+  /** Where the Google Ads line came from. Every other cost is still mock. */
+  googleSource?: DataSource;
 }) {
   const inflows: FlowLine[] = [
     {
@@ -48,7 +51,7 @@ export function MoneyFlow({
 
   const outflows: FlowLine[] = [
     { label: "Meta Ads", amount: summary.metaAdSpend, direction: "out", source: metaSource },
-    { label: "Google Ads", amount: summary.googleAdSpend, direction: "out", source: "mock" },
+    { label: "Google Ads", amount: summary.googleAdSpend, direction: "out", source: googleSource },
     { label: "Klaviyo", amount: summary.emailSpend, direction: "out", note: "Email & SMS platform", source: "mock" },
     { label: "COGS", amount: summary.cogs, direction: "out", source: "mock" },
     { label: "Shipping & fulfillment", amount: summary.shipping, direction: "out", source: "mock" },

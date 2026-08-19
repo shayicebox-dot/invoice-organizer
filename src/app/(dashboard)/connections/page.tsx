@@ -3,7 +3,12 @@ import type { Metadata } from "next";
 import { PageHeader } from "@/components/ui/page-header";
 import { CategorySection, ConnectionCard } from "@/components/dashboard/connection-card";
 import { InfoIcon } from "@/components/ui/icons";
-import { getConnections, getMetaStatus, getShopifyStatus } from "@/lib/data";
+import {
+  getConnections,
+  getGoogleAdsStatus,
+  getMetaStatus,
+  getShopifyStatus,
+} from "@/lib/data";
 import {
   PROVIDERS,
   PROVIDER_CATEGORY_DESCRIPTIONS,
@@ -22,10 +27,11 @@ const CATEGORY_ORDER: ProviderCategory[] = [
 ];
 
 export default async function ConnectionsPage() {
-  const [connections, shopify, meta] = await Promise.all([
+  const [connections, shopify, meta, googleAds] = await Promise.all([
     getConnections(),
     getShopifyStatus(),
     getMetaStatus(),
+    getGoogleAdsStatus(),
   ]);
   const byProvider = new Map(connections.map((connection) => [connection.provider, connection]));
 
@@ -61,9 +67,25 @@ export default async function ConnectionsPage() {
     });
   }
 
+  const googleConnection = byProvider.get("google_ads");
+  if (googleConnection) {
+    byProvider.set("google_ads", {
+      ...googleConnection,
+      status:
+        googleAds.state === "connected"
+          ? "connected"
+          : googleAds.state === "error"
+            ? "error"
+            : "disconnected",
+      accountLabel: googleAds.accountName,
+      lastSyncedAt: formatSyncedAt(googleAds.lastSyncedAt),
+    });
+  }
+
   const liveProviders = [
     shopify.state === "connected" ? "Shopify" : null,
     meta.state === "connected" ? "Meta Ads" : null,
+    googleAds.state === "connected" ? "Google Ads" : null,
   ].filter((entry): entry is string => entry !== null);
 
   return (
@@ -80,9 +102,9 @@ export default async function ConnectionsPage() {
             <strong className="font-semibold text-ink">
               {liveProviders.join(" and ")} {liveProviders.length > 1 ? "are" : "is"} live.
             </strong>{" "}
-            Shopify supplies revenue, refunds, orders and units; Meta Ads supplies ad spend. Both
-            read from the server environment, and neither credential is ever sent to the browser.
-            Every other provider below is still a placeholder.
+            Shopify supplies revenue, refunds, orders and units; Meta Ads and Google Ads supply
+            ad spend. All credentials are read from the server environment and none is ever sent
+            to the browser. Every other provider below is still a placeholder.
           </span>
         </p>
       ) : (
@@ -90,9 +112,9 @@ export default async function ConnectionsPage() {
           <InfoIcon className="mt-0.5 shrink-0 text-ink-muted" width={15} height={15} />
           <span>
             <strong className="font-semibold text-ink">Placeholders for now.</strong> The Connect
-            buttons are inactive while the dashboard runs on demo data. Shopify and Meta Ads are
-            the exceptions: they read real data as soon as their credentials are present in the
-            server environment.
+            buttons are inactive while the dashboard runs on demo data. Shopify, Meta Ads and
+            Google Ads are the exceptions: they read real data as soon as their credentials are
+            present in the server environment.
           </span>
         </p>
       )}
@@ -106,6 +128,17 @@ export default async function ConnectionsPage() {
       {meta.state === "error" && meta.message ? (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12.5px] leading-5 text-ink-secondary">
           <span className="font-semibold text-ink">Meta Ads:</span> {meta.message}
+        </p>
+      ) : null}
+
+      {googleAds.state === "error" && googleAds.message ? (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-3.5 py-3 text-[12.5px] leading-5 text-ink-secondary">
+          <span className="font-semibold text-ink">Google Ads:</span> {googleAds.message}
+          {googleAds.errorCode ? (
+            <span className="ml-1 font-mono text-[11px] text-ink-muted">
+              ({googleAds.errorCode})
+            </span>
+          ) : null}
         </p>
       ) : null}
 

@@ -49,6 +49,12 @@ import {
   loadMetaSpend,
   probeMetaStatus,
 } from "./live-meta";
+import {
+  type GoogleAdsStatus,
+  applyGoogleAdsSpend,
+  loadGoogleAdsMetrics,
+  probeGoogleAdsStatus,
+} from "./live-google-ads";
 
 export const ALL_STORES = "all" as const;
 
@@ -225,6 +231,12 @@ export interface ChannelPerformance {
   platformRoas: number | null;
   /** Share of total marketing spend. */
   shareOfSpend: number | null;
+  /** Cost per click. `null` when the channel had no clicks. */
+  cpc: Money | null;
+  /** Clicks ÷ impressions. */
+  ctr: number | null;
+  /** Whether these figures came from the provider or the mock generator. */
+  source: "live" | "mock";
 }
 
 export const CHANNEL_LABELS: Record<MarketingChannel, string> = {
@@ -258,6 +270,9 @@ export async function getChannelPerformance(
       attributedRevenue: ZERO,
       platformRoas: null,
       shareOfSpend: null,
+      cpc: null,
+      ctr: null,
+      source: "mock",
     };
     existing.spend = add(existing.spend, row.spend);
     existing.impressions += row.impressions;
@@ -267,11 +282,18 @@ export async function getChannelPerformance(
     byChannel.set(row.channel, existing);
   }
 
-  const channels = [...byChannel.values()];
+  return finalizeChannels([...byChannel.values()]);
+}
+
+/** Derive the ratios every channel row shows, from whatever totals it holds. */
+function finalizeChannels(channels: ChannelPerformance[]): ChannelPerformance[] {
   const totalSpend = sum(channels.map((channel) => channel.spend));
+
   for (const channel of channels) {
     channel.platformRoas = ratio(channel.attributedRevenue, channel.spend);
     channel.shareOfSpend = totalSpend === 0 ? null : channel.spend / totalSpend;
+    channel.cpc = channel.clicks > 0 ? (Math.round(channel.spend / channel.clicks) as Money) : null;
+    channel.ctr = channel.impressions > 0 ? channel.clicks / channel.impressions : null;
   }
 
   return channels.sort((a, b) => b.spend - a.spend);
@@ -439,6 +461,7 @@ export async function getExpenseBreakdown(
 export interface LiveSourceStatus {
   shopify: ShopifyStatus;
   meta: MetaStatus;
+  googleAds: GoogleAdsStatus;
 }
 
 /**
@@ -459,18 +482,30 @@ export async function getLiveDailyFinancials(
   ]);
 
   const currency = mockDays[0]?.currency ?? "USD";
-  const metaResult = await loadMetaSpend(start, end, currency);
+  const [metaResult, googleResult] = await Promise.all([
+    loadMetaSpend(start, end, currency),
+    loadGoogleAdsMetrics(start, end, currency),
+  ]);
 
   let days = mockDays;
   if (shopifyResult.days) days = applyShopifySales(days, shopifyResult.days);
   if (metaResult.days) days = applyMetaSpend(days, metaResult.days);
+  if (googleResult.days) days = applyGoogleAdsSpend(days, googleResult.days);
 
-  return { days, status: { shopify: shopifyResult.status, meta: metaResult.status } };
+  return {
+    days,
+    status: {
+      shopify: shopifyResult.status,
+      meta: metaResult.status,
+      googleAds: googleResult.status,
+    },
+  };
 }
 
 export interface LiveRangeReport extends RangeReport {
   shopify: ShopifyStatus;
   meta: MetaStatus;
+  googleAds: GoogleAdsStatus;
 }
 
 /**
@@ -495,6 +530,7 @@ export async function getLiveRangeReport(
     previous: summarize(previous.days),
     shopify: current.status.shopify,
     meta: current.status.meta,
+    googleAds: current.status.googleAds,
   };
 }
 
@@ -511,14 +547,16 @@ export async function getLiveTrailingDays(
   const to = mockDays[mockDays.length - 1].date;
   const currency = mockDays[0].currency;
 
-  const [shopifyResult, metaResult] = await Promise.all([
+  const [shopifyResult, metaResult, googleResult] = await Promise.all([
     loadShopifySales(from, to),
     loadMetaSpend(from, to, currency),
+    loadGoogleAdsMetrics(from, to, currency),
   ]);
 
   let result = mockDays;
   if (shopifyResult.days) result = applyShopifySales(result, shopifyResult.days);
   if (metaResult.days) result = applyMetaSpend(result, metaResult.days);
+  if (googleResult.days) result = applyGoogleAdsSpend(result, googleResult.days);
   return result;
 }
 
@@ -531,6 +569,62 @@ export async function getMetaStatus(): Promise<MetaStatus> {
   return probeMetaStatus();
 }
 
-export { type ShopifyStatus, type MetaStatus };
+export async function getGoogleAdsStatus(): Promise<GoogleAdsStatus> {
+  return probeGoogleAdsStatus();
+}
+
+/**
+ * Channel table for the Marketing page, with the Google Ads row replaced by
+ * real figures when the API is reachable. Every other channel stays mock and
+ * is labelled as such, so the table never presents mock numbers as live.
+ */
+export async function getLiveChannelPerformance(
+  scope: StoreScope,
+  start: ISODate,
+  end: ISODate,
+): Promise<{ channels: ChannelPerformance[]; googleAds: GoogleAdsStatus }> {
+  const [channels, days] = await Promise.all([
+    getChannelPerformance(scope, start, end),
+    getDailyFinancials(scope, start, end),
+  ]);
+
+  const currency = days[0]?.currency ?? "USD";
+  const google = await loadGoogleAdsMetrics(start, end, currency);
+  if (!google.days) return { channels, googleAds: google.status };
+
+  const totals = google.days.reduce(
+    (acc, day) => {
+      acc.spend = add(acc.spend, day.spend);
+      acc.impressions += day.impressions;
+      acc.clicks += day.clicks;
+      acc.conversions += day.conversions;
+      acc.value = add(acc.value, day.conversionValue);
+      return acc;
+    },
+    { spend: ZERO, impressions: 0, clicks: 0, conversions: 0, value: ZERO },
+  );
+
+  const live: ChannelPerformance = {
+    channel: "google_ads",
+    label: CHANNEL_LABELS.google_ads,
+    spend: totals.spend,
+    impressions: totals.impressions,
+    clicks: totals.clicks,
+    attributedConversions: totals.conversions,
+    attributedRevenue: totals.value,
+    platformRoas: null,
+    shareOfSpend: null,
+    cpc: null,
+    ctr: null,
+    source: "live",
+  };
+
+  const merged = channels.filter((channel) => channel.channel !== "google_ads");
+  merged.push(live);
+
+  return { channels: finalizeChannels(merged), googleAds: google.status };
+}
+
+export { type ShopifyStatus, type MetaStatus, type GoogleAdsStatus };
 
 export { type DailyFinancials, type PeriodSummary };
