@@ -59,8 +59,12 @@ interface CogsCache {
 const TTL_MS = 60_000;
 const cogsCache = new Map<string, CogsCache>();
 
-/** Scopes the per-SKU costing query needs beyond the revenue integration. */
-const COGS_SCOPES = ["read_products", "read_inventory"] as const;
+/**
+ * Scopes the costing query needs beyond the revenue integration. Pack mapping
+ * reads only SKUs and titles, so it needs one fewer than cost-per-item does.
+ */
+const PACK_SCOPES = ["read_products"] as const;
+const UNIT_COST_SCOPES = ["read_products", "read_inventory"] as const;
 
 /** Whether the configured COGS mode needs Shopify line items at all. */
 function needsLineItems(settings: BusinessCostSettings): boolean {
@@ -75,12 +79,13 @@ function needsLineItems(settings: BusinessCostSettings): boolean {
 async function loadShopifyCogs(
   start: ISODate,
   end: ISODate,
+  includeUnitCost: boolean,
 ): Promise<{ result: ShopifyCogsResult | null; error: string | null }> {
   if (!getShopifyConfig()) {
     return { result: null, error: "Shopify is not connected, so units sold cannot be costed." };
   }
 
-  const key = `${start}:${end}`;
+  const key = `${start}:${end}:${includeUnitCost ? "cost" : "packs"}`;
   const cached = cogsCache.get(key);
   if (cached && Date.now() - cached.fetchedAt < TTL_MS) {
     return { result: cached.result, error: null };
@@ -88,7 +93,7 @@ async function loadShopifyCogs(
 
   try {
     const shop = await fetchShopInfo();
-    const result = await fetchShopifyCogs(start, end, shop);
+    const result = await fetchShopifyCogs(start, end, shop, { includeUnitCost });
     cogsCache.set(key, { fetchedAt: Date.now(), result });
     return { result, error: null };
   } catch (error) {
@@ -99,17 +104,19 @@ async function loadShopifyCogs(
     // us what was granted, so this is a fact and not a guess.
     let scopeNote = "";
     try {
+      const needed = includeUnitCost ? UNIT_COST_SCOPES : PACK_SCOPES;
       const granted = await getGrantedScopes();
       if (granted.length > 0) {
-        const missing = COGS_SCOPES.filter((scope) => !granted.includes(scope));
+        const missing = needed.filter((scope) => !granted.includes(scope));
         if (missing.length > 0) {
           scopeNote = ` The Shopify app is missing ${missing.join(" and ")}; re-authorize it with those scopes.`;
         }
       } else {
-        scopeNote = ` Costing needs the ${COGS_SCOPES.join(" and ")} scopes.`;
+        scopeNote = ` Costing needs the ${needed.join(" and ")} scope${needed.length > 1 ? "s" : ""}.`;
       }
     } catch {
-      scopeNote = ` Costing needs the ${COGS_SCOPES.join(" and ")} scopes.`;
+      const needed = includeUnitCost ? UNIT_COST_SCOPES : PACK_SCOPES;
+      scopeNote = ` Costing needs the ${needed.join(" and ")} scope${needed.length > 1 ? "s" : ""}.`;
     }
 
     return { result: null, error: `${message}${scopeNote}` };
@@ -145,8 +152,10 @@ export async function applyBusinessCosts(
     };
   }
 
+  // Only the cost-per-item source reads the inventory item, so only it needs
+  // read_inventory. The pack model gets by with read_products.
   const cogsResult = needsLineItems(settings)
-    ? await loadShopifyCogs(start, end)
+    ? await loadShopifyCogs(start, end, settings.cogs.mode === "shopify_cost_per_item")
     : { result: null, error: null };
 
   const cogsByDate = new Map((cogsResult.result?.byDate ?? []).map((day) => [day.date, day]));

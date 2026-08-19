@@ -41,7 +41,20 @@ const MAX_PAGES = 40;
 /** Restock types that put the unit back into sellable inventory. */
 const RESTOCKED_TYPES = new Set(["RETURN", "CANCEL", "LEGACY_RESTOCK"]);
 
-const COGS_QUERY = `query EcomPlCogs($first: Int!, $after: String, $query: String) {
+/**
+ * Pack mapping needs only the SKU and titles; the inventory item's cost is
+ * needed solely by the `shopify_cost_per_item` source. Asking for it always
+ * would demand `read_inventory` from stores that never use it, so the field is
+ * requested only when it will actually be read.
+ */
+function buildQuery(includeUnitCost: boolean): string {
+  const inventoryItem = includeUnitCost
+    ? `inventoryItem {
+              unitCost { amount currencyCode }
+            }`
+    : "";
+
+  return `query EcomPlCogs($first: Int!, $after: String, $query: String) {
   orders(first: $first, after: $after, query: $query, sortKey: CREATED_AT) {
     pageInfo { hasNextPage endCursor }
     nodes {
@@ -58,9 +71,7 @@ const COGS_QUERY = `query EcomPlCogs($first: Int!, $after: String, $query: Strin
             id
             sku
             title
-            inventoryItem {
-              unitCost { amount currencyCode }
-            }
+            ${inventoryItem}
           }
         }
       }
@@ -78,6 +89,7 @@ const COGS_QUERY = `query EcomPlCogs($first: Int!, $after: String, $query: Strin
     }
   }
 }`;
+}
 
 interface LineItemNode {
   id: string;
@@ -172,7 +184,10 @@ export async function fetchShopifyCogs(
   start: ISODate,
   end: ISODate,
   shop: ShopInfo,
+  options: { includeUnitCost?: boolean } = {},
 ): Promise<ShopifyCogsResult> {
+  const includeUnitCost = options.includeUnitCost ?? true;
+  const query = buildQuery(includeUnitCost);
   const widened =
     `created_at:>='${shiftIso(`${start}T00:00:00Z`, -1)}' AND ` +
     `created_at:<='${shiftIso(`${end}T23:59:59Z`, 1)}'`;
@@ -186,7 +201,7 @@ export async function fetchShopifyCogs(
   do {
     const data: {
       orders: { pageInfo: { hasNextPage: boolean; endCursor: string | null }; nodes: OrderNode[] };
-    } = await shopifyGraphQL(COGS_QUERY, { first: PAGE_SIZE, after: cursor, query: widened });
+    } = await shopifyGraphQL(query, { first: PAGE_SIZE, after: cursor, query: widened });
 
     for (const order of data.orders.nodes) {
       const date = dateInTimezone(order.createdAt, shop.timezone);

@@ -5,7 +5,8 @@
  * variants were mapped to a 10, 20 or 50 pack, and which could not be mapped
  * confidently and are therefore contributing no cost.
  *
- *   npm run verify:packs -- 2026-08-01 2026-08-10
+ *   npm run verify:packs                        last 30 days
+ *   npm run verify:packs -- 2026-08-01 2026-08-10   an explicit range
  *
  * Exits non-zero when anything is unmapped, because an unmapped line means the
  * P&L understates cost. No credential is printed.
@@ -36,16 +37,25 @@ if (existsSync(envPath)) {
 const { fetchShopifyCogs } = await import("../src/lib/shopify/cogs");
 const { fetchShopInfo } = await import("../src/lib/shopify/orders");
 const { getShopifyConfig } = await import("../src/lib/shopify/config");
+const { getGrantedScopes } = await import("../src/lib/shopify/client");
 const { readSettings } = await import("../src/lib/business-costs/store");
 const { costLine, matchPack } = await import("../src/lib/business-costs/pack-model");
 const { formatMoney, toMinor, fromMinor } = await import("../src/lib/money");
 
 const [startArg, endArg] = process.argv.slice(2).filter((a) => !a.startsWith("-"));
-const start = startArg ?? new Date().toISOString().slice(0, 10);
-const end = endArg ?? start;
+
+/** Default window: the last 30 days, ending today. */
+function daysAgo(days: number): string {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+const start = startArg ?? daysAgo(29);
+const end = endArg ?? (startArg ? startArg : daysAgo(0));
 
 console.log("\nPack mapping report");
-console.log("=".repeat(94));
+console.log("=".repeat(108));
 console.log(`Range: ${start} .. ${end}\n`);
 
 if (!getShopifyConfig()) {
@@ -53,11 +63,33 @@ if (!getShopifyConfig()) {
   process.exit(1);
 }
 
+// Pack mapping reads SKUs and titles only, so read_inventory is not required.
+const REQUIRED_SCOPES = ["read_orders", "read_products"];
+
+try {
+  const granted = await getGrantedScopes();
+  if (granted.length === 0) {
+    console.log("Granted scopes: not reported by Shopify (cannot verify — proceeding).\n");
+  } else {
+    console.log(`Granted scopes: ${granted.join(", ")}`);
+    const missing = REQUIRED_SCOPES.filter((scope) => !granted.includes(scope));
+    if (missing.length > 0) {
+      console.log(`\n✗ Missing required scope(s): ${missing.join(", ")}`);
+      console.log("  Add them to the app in Shopify, re-authorize, then rerun.\n");
+      process.exit(1);
+    }
+    console.log("✓ Required scopes present (read_inventory is not needed for pack mapping)\n");
+  }
+} catch (error) {
+  console.log(`✗ Authentication failed: ${error instanceof Error ? error.message : error}\n`);
+  process.exit(1);
+}
+
 const settings = await readSettings();
 const model = settings.packModel;
 
 console.log("Cost model in force");
-console.log("-".repeat(94));
+console.log("-".repeat(108));
 for (const rule of model.rules) {
   const total = toMinor(rule.productCogs) + toMinor(rule.fulfillmentCost);
   console.log(
@@ -75,7 +107,8 @@ if (model.overrides.length > 0) {
 console.log();
 
 const shop = await fetchShopInfo();
-const result = await fetchShopifyCogs(start, end, shop);
+// Read-only. `includeUnitCost: false` also keeps read_inventory out of play.
+const result = await fetchShopifyCogs(start, end, shop, { includeUnitCost: false });
 
 if (result.lines.length === 0) {
   console.log("No order line items in this range.\n");
@@ -139,13 +172,14 @@ const rpad = (v: string, w: number) => v.padStart(w);
 // --- Mapped ---------------------------------------------------------------
 
 console.log("MAPPED PRODUCTS");
-console.log("-".repeat(94));
+console.log("-".repeat(108));
 if (mapped.length === 0) {
   console.log("  (none)\n");
 } else {
   console.log(
-    pad("SKU", 20) + pad("PRODUCT", 30) + rpad("PACK", 6) + rpad("VIA", 10) +
-      rpad("UNITS", 7) + rpad("COGS", 11) + rpad("FULFIL", 10),
+    pad("SKU", 18) + pad("PRODUCT TITLE", 30) + pad("VARIANT", 18) +
+      rpad("PACK", 5) + rpad("VIA", 9) + rpad("QTY", 6) +
+      rpad("COGS", 11) + rpad("FULFIL", 11),
   );
   for (const size of [10, 20, 50]) {
     const group = mapped.filter((row) => row.packSize === size);
@@ -153,11 +187,12 @@ if (mapped.length === 0) {
     console.log(`\n  Pack of ${size}`);
     for (const row of group) {
       console.log(
-        "  " + pad(row.sku, 18) +
-          pad([row.title, row.variantTitle].filter((p) => p && p !== "Default").join(" · "), 30) +
-          rpad(String(row.packSize), 6) + rpad(row.confidence, 10) +
-          rpad(String(row.units), 7) + rpad(formatMoney(fromMinor(row.cogs)), 11) +
-          rpad(formatMoney(fromMinor(row.fulfillment)), 10),
+        "  " + pad(row.sku || "—", 16) +
+          pad(row.title || "—", 30) +
+          pad(row.variantTitle && row.variantTitle !== "Default" ? row.variantTitle : "—", 18) +
+          rpad(String(row.packSize), 5) + rpad(row.confidence, 9) +
+          rpad(String(row.units), 6) + rpad(formatMoney(fromMinor(row.cogs)), 11) +
+          rpad(formatMoney(fromMinor(row.fulfillment)), 11),
       );
     }
   }
@@ -167,18 +202,20 @@ if (mapped.length === 0) {
 // --- Unmapped -------------------------------------------------------------
 
 console.log("MISSING COST MAPPING");
-console.log("-".repeat(94));
+console.log("-".repeat(108));
 if (unmapped.length === 0) {
   console.log("  None — every product sold in this range mapped to a pack.\n");
 } else {
   console.log(
-    pad("SKU", 24) + pad("PRODUCT", 38) + rpad("UNITS", 7) + rpad("REASON", 14),
+    pad("SKU", 20) + pad("PRODUCT TITLE", 32) + pad("VARIANT", 20) +
+      rpad("QTY", 6) + rpad("REASON", 12),
   );
   for (const row of unmapped) {
     console.log(
-      pad(row.sku, 24) +
-        pad([row.title, row.variantTitle].filter((p) => p && p !== "Default").join(" · "), 38) +
-        rpad(String(row.units), 7) + rpad(row.confidence, 14),
+      pad(row.sku || "—", 20) +
+        pad(row.title || "—", 32) +
+        pad(row.variantTitle && row.variantTitle !== "Default" ? row.variantTitle : "—", 20) +
+        rpad(String(row.units), 6) + rpad(row.confidence, 12),
     );
   }
   console.log(
@@ -194,7 +231,7 @@ const totalFulfil = all.reduce((acc, row) => acc + row.fulfillment, 0);
 const totalUnits = all.reduce((acc, row) => acc + row.units, 0);
 
 console.log("TOTALS");
-console.log("-".repeat(94));
+console.log("-".repeat(108));
 console.log(`  units costed        ${totalUnits}`);
 console.log(`  product COGS        ${formatMoney(fromMinor(totalCogs))}`);
 console.log(`  shipping/fulfilment ${formatMoney(fromMinor(totalFulfil))}`);
