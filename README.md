@@ -54,17 +54,86 @@ for reconciliation and excluded from revenue.
 
 ---
 
-## Status: Phase 1
+## Status: Phase 2 — Shopify connected
 
-The application foundation and dashboard, running on **deterministic mock data**.
+The dashboard runs on **deterministic mock data**, except for Shopify revenue on
+the Overview page, which is read live from the Shopify Admin GraphQL API.
 
-- No third-party OAuth. The Connect buttons on the Connections page are
-  deliberately inert placeholders.
+| Metric | Source |
+|---|---|
+| Gross sales, discounts, refunds, orders, units sold | **Live Shopify** (Overview only) |
+| COGS, shipping & fulfillment, payment fees | Mock |
+| Meta Ads, Google Ads, Klaviyo | Mock |
+| Variable and fixed expenses | Mock |
+
+Because Net Profit subtracts mock costs from real revenue, **it is structurally
+correct but not yet accurate**. Every figure on the Overview carries a `Live` or
+`Mock` tag, and the banner at the top of the page says the same in words.
+
+Only the Overview reads live data. Profit & Loss, Orders, Products, Marketing
+and Expenses remain fully mock, so the two can be compared side by side.
+
 - No fake API routes. Data is read through a typed data-access module that
   Supabase queries will replace.
 - The mock generator produces the same record shapes the proposed schema
   defines, so the swap is a change inside `src/lib/data/` and nothing above it
   moves.
+- Every Connect button other than Shopify is still an inert placeholder.
+
+---
+
+## Connecting Shopify
+
+Create a custom app on the store, enable the **`read_orders`** scope, and put its
+credentials in `.env.local`:
+
+```bash
+SHOPIFY_STORE_DOMAIN="example.myshopify.com"
+SHOPIFY_CLIENT_ID="..."
+SHOPIFY_CLIENT_SECRET="..."
+```
+
+Restart the dev server. The Overview banner turns green and the Connections page
+shows Shopify as **Connected**.
+
+Leave any variable blank and the app falls back to mock data and reports **Not
+connected** — a missing credential is never an error state.
+
+### How it works
+
+`src/lib/shopify/client.ts` exchanges the client id and secret for an access
+token using the **client credentials grant**, caches it in server memory, and
+refreshes it two minutes before expiry. If Shopify rejects a token mid-flight,
+the client refreshes once and retries. Requests time out after 15 seconds.
+
+### Security
+
+- The client module imports `server-only`, so importing it from a client
+  component is a **build error**, not a runtime bug.
+- Credentials are read from `process.env` on the server. Nothing is prefixed
+  `NEXT_PUBLIC_`, so nothing reaches the browser bundle.
+- The access token never leaves the server. Only aggregated daily totals are
+  serialized into the page.
+- Error messages carry the HTTP status only. Shopify echoes request parameters
+  in some error bodies, so the body is deliberately not propagated — that is how
+  a client secret ends up in a log.
+- No credential is written to disk, to the database, or to the repository.
+
+### Known limitations
+
+- **Refund timing.** `totalRefundedSet` is attributed to the order's creation
+  date, not the date the refund was issued. A refund on an older order shifts
+  that older day. Correcting this needs a separate refunds query.
+- **60-day history.** Shopify restricts apps to the last 60 days of orders
+  unless `read_all_orders` is granted. Days outside the accessible window report
+  zero revenue rather than mock revenue.
+- **One shop, three mock stores.** The mock dataset has three stores; the live
+  integration has one. Live revenue overlays whichever store scope is selected,
+  while the mock cost lines stay scoped to that store.
+- **Page cap.** A window is read in at most 25 pages of 100 orders. Beyond that
+  the banner warns that the period is incomplete.
+- **Order-level pages still mock.** The Orders page lists mock orders; only the
+  Overview aggregates are live.
 
 ---
 

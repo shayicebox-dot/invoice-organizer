@@ -1,4 +1,5 @@
 import { Card, CardHeader } from "@/components/ui/card";
+import { type DataSource, SourceTag } from "@/components/ui/source-tag";
 import type { PeriodSummary } from "@/lib/finance";
 import { type Money, formatMoney, formatPercent } from "@/lib/money";
 import { cn } from "@/lib/cn";
@@ -9,6 +10,8 @@ interface FlowLine {
   /** Inflows render with a leading +, outflows with a leading −. */
   direction: "in" | "out";
   note?: string;
+  /** Omit to leave the line unlabelled. */
+  source?: DataSource;
 }
 
 /**
@@ -20,26 +23,35 @@ export function MoneyFlow({
   title,
   caption,
   summary,
+  revenueSource = "mock",
 }: {
   title: string;
   caption: string;
   summary: PeriodSummary;
+  /** Where the revenue lines came from. Costs are always mock in this phase. */
+  revenueSource?: DataSource;
 }) {
   const inflows: FlowLine[] = [
-    { label: "Shopify sales", amount: summary.grossSales, direction: "in", note: "Gross, before discounts" },
-    { label: "Discounts", amount: summary.discounts, direction: "out" },
-    { label: "Refunds", amount: summary.refunds, direction: "out" },
+    {
+      label: "Shopify sales",
+      amount: summary.grossSales,
+      direction: "in",
+      note: "Gross, before discounts",
+      source: revenueSource,
+    },
+    { label: "Discounts", amount: summary.discounts, direction: "out", source: revenueSource },
+    { label: "Refunds", amount: summary.refunds, direction: "out", source: revenueSource },
   ];
 
   const outflows: FlowLine[] = [
-    { label: "Meta Ads", amount: summary.metaAdSpend, direction: "out" },
-    { label: "Google Ads", amount: summary.googleAdSpend, direction: "out" },
-    { label: "Klaviyo", amount: summary.emailSpend, direction: "out", note: "Email & SMS platform" },
-    { label: "COGS", amount: summary.cogs, direction: "out" },
-    { label: "Shipping & fulfillment", amount: summary.shipping, direction: "out" },
-    { label: "Payment fees", amount: summary.paymentFees, direction: "out" },
-    { label: "Other expenses", amount: summary.variableExpenses, direction: "out" },
-    { label: "Fixed expenses", amount: summary.fixedExpenses, direction: "out", note: "Allocated to this period" },
+    { label: "Meta Ads", amount: summary.metaAdSpend, direction: "out", source: "mock" },
+    { label: "Google Ads", amount: summary.googleAdSpend, direction: "out", source: "mock" },
+    { label: "Klaviyo", amount: summary.emailSpend, direction: "out", note: "Email & SMS platform", source: "mock" },
+    { label: "COGS", amount: summary.cogs, direction: "out", source: "mock" },
+    { label: "Shipping & fulfillment", amount: summary.shipping, direction: "out", source: "mock" },
+    { label: "Payment fees", amount: summary.paymentFees, direction: "out", source: "mock" },
+    { label: "Other expenses", amount: summary.variableExpenses, direction: "out", source: "mock" },
+    { label: "Fixed expenses", amount: summary.fixedExpenses, direction: "out", note: "Allocated to this period", source: "mock" },
   ];
 
   const isLoss = summary.netProfit < 0;
@@ -114,13 +126,14 @@ function SectionLabel({ children }: { children: string }) {
 function Line({ line, currency }: { line: FlowLine; currency: PeriodSummary["currency"] }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-line/60 py-[7px] last:border-b-0">
-      <div className="min-w-0">
+      <div className="flex min-w-0 items-center gap-2">
         <span className="truncate text-[12.5px] text-ink">
           {line.label}
           {line.note ? (
             <span className="ml-1.5 text-[11px] text-ink-muted">{line.note}</span>
           ) : null}
         </span>
+        {line.source ? <SourceTag source={line.source} className="shrink-0" /> : null}
       </div>
       <span
         className={cn(

@@ -37,6 +37,12 @@ import {
   catalogForStore,
 } from "./catalog";
 import { type MockDataset, generateDataset, mergeDailySeries } from "./generate";
+import {
+  type ShopifyStatus,
+  applyShopifySales,
+  loadShopifySales,
+  probeShopifyStatus,
+} from "./live-shopify";
 
 export const ALL_STORES = "all" as const;
 
@@ -414,5 +420,77 @@ export async function getExpenseBreakdown(
 
   return { variable: variableRows, fixed: fixedRows, total };
 }
+
+// ---------------------------------------------------------------------------
+// Live Shopify variants
+//
+// These sit alongside the mock readers rather than replacing them. Only the
+// Overview and Connections pages call them, so every other screen keeps
+// reading pure mock data until its own integration lands.
+// ---------------------------------------------------------------------------
+
+/** Daily records with real Shopify revenue and orders overlaid, when available. */
+export async function getLiveDailyFinancials(
+  scope: StoreScope,
+  start: ISODate,
+  end: ISODate,
+): Promise<{ days: DailyFinancials[]; status: ShopifyStatus }> {
+  const [mockDays, live] = await Promise.all([
+    getDailyFinancials(scope, start, end),
+    loadShopifySales(start, end),
+  ]);
+
+  if (!live.days) return { days: mockDays, status: live.status };
+  return { days: applyShopifySales(mockDays, live.days), status: live.status };
+}
+
+export interface LiveRangeReport extends RangeReport {
+  shopify: ShopifyStatus;
+}
+
+/**
+ * Range report where both the current and the comparison window use live
+ * revenue. Comparing a live period against a mock one would make every delta
+ * meaningless, so they always come from the same source.
+ */
+export async function getLiveRangeReport(
+  scope: StoreScope,
+  range: DateRange,
+  previousWindow: { start: ISODate; end: ISODate },
+): Promise<LiveRangeReport> {
+  const [current, previous] = await Promise.all([
+    getLiveDailyFinancials(scope, range.start, range.end),
+    getLiveDailyFinancials(scope, previousWindow.start, previousWindow.end),
+  ]);
+
+  return {
+    range,
+    days: current.days,
+    summary: summarize(current.days),
+    previous: summarize(previous.days),
+    shopify: current.status,
+  };
+}
+
+/** Trailing window for the Overview charts, with live revenue overlaid. */
+export async function getLiveTrailingDays(
+  scope: StoreScope,
+  end: ISODate,
+  days: number,
+): Promise<DailyFinancials[]> {
+  const mockDays = await getTrailingDays(scope, end, days);
+  if (mockDays.length === 0) return mockDays;
+
+  const live = await loadShopifySales(mockDays[0].date, mockDays[mockDays.length - 1].date);
+  if (!live.days) return mockDays;
+  return applyShopifySales(mockDays, live.days);
+}
+
+/** Connection status for the Connections page. Metadata only, no order sync. */
+export async function getShopifyStatus(): Promise<ShopifyStatus> {
+  return probeShopifyStatus();
+}
+
+export { type ShopifyStatus };
 
 export { type DailyFinancials, type PeriodSummary };

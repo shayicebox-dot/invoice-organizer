@@ -5,7 +5,13 @@ import { MoneyFlow } from "@/components/dashboard/money-flow";
 import { DailyPlTable } from "@/components/dashboard/daily-pl-table";
 import { NetProfitTrend } from "@/components/charts/net-profit-trend";
 import { RevenueVsExpenses } from "@/components/charts/revenue-vs-expenses";
-import { getDailyFinancials, getRangeReport, getStores, getTrailingDays } from "@/lib/data";
+import { DataSourceBanner } from "@/components/dashboard/data-source-banner";
+import {
+  getLiveDailyFinancials,
+  getLiveRangeReport,
+  getLiveTrailingDays,
+  getStores,
+} from "@/lib/data";
 import {
   dailyNetProfit,
   dailyNetSales,
@@ -26,17 +32,20 @@ export default async function OverviewPage(props: PageProps<"/">) {
   const stores = await getStores();
   const view = resolveViewParams(searchParams, stores);
 
-  const report = await getRangeReport(view.scope, view.range, view.previous);
-  const { summary, previous } = report;
+  const report = await getLiveRangeReport(view.scope, view.range, view.previous);
+  const { summary, previous, shopify } = report;
+  const isLive = shopify.state === "connected";
+  /** Revenue and order counts follow Shopify; every cost line is still mock. */
+  const revenueSource = isLive ? "live" : "mock";
 
   const selectedDayCount = daysBetween(view.range.start, view.range.end);
   const usesTrailingWindow = selectedDayCount < MIN_CHART_DAYS;
   const chartDays = usesTrailingWindow
-    ? await getTrailingDays(view.scope, view.range.end, CHART_FALLBACK_DAYS)
+    ? await getLiveTrailingDays(view.scope, view.range.end, CHART_FALLBACK_DAYS)
     : report.days;
 
   const tableDays = usesTrailingWindow
-    ? await getDailyFinancials(view.scope, view.range.start, view.range.end)
+    ? (await getLiveDailyFinancials(view.scope, view.range.start, view.range.end)).days
     : report.days;
 
   const chartCaption = usesTrailingWindow
@@ -66,6 +75,8 @@ export default async function OverviewPage(props: PageProps<"/">) {
         description={`${view.scopeLabel} · ${view.range.label}. Shopify is the source of truth for revenue; ad platforms and email tools are costs.`}
       />
 
+      <DataSourceBanner status={shopify} />
+
       {/* KPI row. Net Profit is the hero figure — one per view. */}
       <div className="grid gap-3 lg:grid-cols-12">
         <NetProfitTile
@@ -76,6 +87,11 @@ export default async function OverviewPage(props: PageProps<"/">) {
           deltaCaption={comparison}
           marginLabel={formatPercent(summary.netMargin)}
           contributionLabel={formatMoney(summary.contributionProfit, summary.currency)}
+          note={
+            isLive
+              ? "Live Shopify revenue less mock costs — not yet a true P&L."
+              : "Every input is mock data."
+          }
         />
 
         <div className="grid gap-3 sm:grid-cols-2 lg:col-span-8 xl:grid-cols-3">
@@ -84,6 +100,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             value={formatMoney(summary.netSales, summary.currency)}
             delta={percentChange(summary.netSales, previous.netSales)}
             deltaCaption={comparison}
+            source={revenueSource}
             footnote={`Gross ${formatMoney(summary.grossSales, summary.currency, { whole: true })} less discounts and refunds`}
           />
           <StatTile
@@ -92,6 +109,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             delta={percentChange(summary.adSpend, previous.adSpend)}
             deltaCaption={comparison}
             higherIsBetter={false}
+            source="mock"
             footnote={`Meta ${formatMoney(summary.metaAdSpend, summary.currency, { compact: true })} · Google ${formatMoney(summary.googleAdSpend, summary.currency, { compact: true })}`}
           />
           <StatTile
@@ -103,6 +121,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
                 : (summary.orders - previous.orders) / Math.abs(previous.orders)
             }
             deltaCaption={comparison}
+            source={revenueSource}
             footnote={`${formatNumber(summary.unitsSold)} units sold`}
           />
           <StatTile
@@ -110,6 +129,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             value={formatMoney(summary.averageOrderValue, summary.currency)}
             delta={percentChange(summary.averageOrderValue, previous.averageOrderValue)}
             deltaCaption={comparison}
+            source={revenueSource}
             footnote="Net revenue ÷ orders"
           />
           <StatTile
@@ -118,6 +138,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             delta={percentChange(summary.cogs, previous.cogs)}
             deltaCaption={comparison}
             higherIsBetter={false}
+            source="mock"
             footnote={`Gross margin ${formatPercent(summary.grossMargin)}`}
           />
           <StatTile
@@ -130,6 +151,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             }
             deltaCaption={comparison}
             deltaUnit="points"
+            source={isLive ? "blend" : "mock"}
             footnote={`Contribution margin ${formatPercent(summary.contributionMargin)}`}
           />
         </div>
@@ -139,6 +161,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
         title={isSingleDayToday ? "Today's Money Flow" : "Money Flow"}
         caption={`${view.scopeLabel} · ${view.range.label}`}
         summary={summary}
+        revenueSource={revenueSource}
       />
 
       <div className="grid gap-3 xl:grid-cols-2">

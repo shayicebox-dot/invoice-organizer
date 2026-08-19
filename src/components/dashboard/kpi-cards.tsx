@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { Delta } from "@/components/ui/delta";
+import { type DataSource, SourceTag } from "@/components/ui/source-tag";
 import { cn } from "@/lib/cn";
 
 /**
@@ -15,6 +16,7 @@ export function StatTile({
   higherIsBetter = true,
   deltaUnit = "percent",
   footnote,
+  source,
 }: {
   label: string;
   value: string;
@@ -23,10 +25,15 @@ export function StatTile({
   higherIsBetter?: boolean;
   deltaUnit?: "percent" | "points";
   footnote?: ReactNode;
+  /** Omit to leave the tile unlabelled. */
+  source?: DataSource;
 }) {
   return (
     <div className="rounded-lg border border-line bg-surface p-4">
-      <p className="text-[12px] font-medium text-ink-muted">{label}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[12px] font-medium text-ink-muted">{label}</p>
+        {source ? <SourceTag source={source} /> : null}
+      </div>
       <p className="mt-1.5 text-[22px] font-semibold tracking-[-0.015em] text-ink">{value}</p>
       <div className="mt-1.5 flex items-center gap-2">
         <Delta
@@ -51,6 +58,7 @@ export function NetProfitTile({
   deltaCaption,
   marginLabel,
   contributionLabel,
+  note,
   className,
 }: {
   value: string;
@@ -59,6 +67,8 @@ export function NetProfitTile({
   deltaCaption?: string;
   marginLabel: string;
   contributionLabel: string;
+  /** Shown under the hero figure, e.g. that it blends live and mock inputs. */
+  note?: ReactNode;
   className?: string;
 }) {
   return (
@@ -89,6 +99,8 @@ export function NetProfitTile({
       <div className="mt-3">
         <Delta value={delta} caption={deltaCaption} />
       </div>
+
+      {note ? <p className="mt-2 text-[11px] leading-4 text-ink-muted">{note}</p> : null}
 
       <dl className="mt-5 grid grid-cols-2 gap-x-4 border-t border-line pt-3 text-[12px]">
         <div>

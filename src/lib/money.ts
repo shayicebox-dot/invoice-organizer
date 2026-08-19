@@ -60,6 +60,36 @@ export function fromMajor(amount: number, currency: CurrencyCode = "USD"): Money
   return fromMinor(roundHalfAwayFromZero(amount * factor));
 }
 
+/**
+ * Parse a decimal amount that arrived as a string (Shopify and most finance
+ * APIs return `"18420.55"`) into integer minor units.
+ *
+ * The digits are read out of the string rather than multiplied through a
+ * float, so no amount can drift: `parseFloat("18420.55") * 100` is
+ * 1842054.9999999998, which rounds correctly here but not everywhere. Extra
+ * fractional digits beyond the currency's precision are rounded half away
+ * from zero.
+ */
+export function parseDecimalToMinor(value: string, currency: CurrencyCode = "USD"): Money {
+  const trimmed = value.trim();
+  const match = /^(-)?(\d*)(?:\.(\d*))?$/.exec(trimmed);
+  if (!match || (match[2] === "" && (match[3] ?? "") === "")) {
+    throw new TypeError(`Not a decimal amount: ${JSON.stringify(value)}`);
+  }
+
+  const [, sign, whole = "", fraction = ""] = match;
+  const precision = FRACTION_DIGITS[currency];
+
+  const kept = fraction.slice(0, precision).padEnd(precision, "0");
+  const units = Number(`${whole || "0"}${kept}`);
+
+  // Round based on the first discarded digit.
+  const nextDigit = fraction.charCodeAt(precision) - 48;
+  const rounded = nextDigit >= 5 && nextDigit <= 9 ? units + 1 : units;
+
+  return fromMinor(sign === "-" ? -rounded : rounded);
+}
+
 /** Convert back to major units. For display and charting only. */
 export function toMajor(money: Money, currency: CurrencyCode = "USD"): number {
   return money / MINOR_UNITS_PER_MAJOR[currency];
