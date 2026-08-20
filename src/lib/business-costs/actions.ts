@@ -15,6 +15,8 @@ import { revalidatePath } from "next/cache";
 import { type Money, ZERO, parseDecimalToMinor } from "../money";
 import type { ExpenseCategory, ISODate } from "../types";
 import { updateSettings } from "./store";
+import { PACK_SIZES } from "./pack-mapping";
+import type { MappingKey, PackAssignment, PackMappingEntry } from "./pack-mapping";
 import type { PaymentProcessor, Recurrence, RecurringCost, ShippingRate, SkuCost } from "./types";
 
 const EXPENSE_CATEGORIES: ExpenseCategory[] = [
@@ -32,7 +34,15 @@ const RECURRENCES: Recurrence[] = ["monthly", "weekly", "yearly", "one_time"];
 
 /** Refresh every page whose numbers depend on these settings. */
 function revalidateDashboard(): void {
-  for (const path of ["/", "/profit-and-loss", "/expenses", "/business-costs", "/marketing"]) {
+  for (const path of [
+    "/",
+    "/profit-and-loss",
+    "/expenses",
+    "/business-costs",
+    "/historical-mapping",
+    "/marketing",
+    "/orders",
+  ]) {
     revalidatePath(path);
   }
 }
@@ -88,33 +98,76 @@ function share(form: FormData, key: string): number {
   return Math.min(Math.max(raw / 100, 0), 1);
 }
 
-// --- Pack mapping overrides -------------------------------------------------
+// --- Historical pack mapping ------------------------------------------------
 
-export async function addPackOverride(form: FormData): Promise<void> {
-  const match = text(form, "match");
-  const size = Number.parseInt(text(form, "packSize"), 10);
-  if (match === "" || ![10, 20, 50].includes(size)) return;
+const MAPPING_KEYS: MappingKey[] = [
+  "sku",
+  "variant_id",
+  "variant_title",
+  "product_title",
+  "line_title",
+  "any",
+];
 
-  await updateSettings((current) => ({
-    ...current,
-    packModel: {
-      ...current.packModel,
-      overrides: [
-        ...current.packModel.overrides,
-        { id: newId("ovr"), match, packSize: size as 10 | 20 | 50 },
-      ],
-    },
-  }));
+function parseAssignment(raw: string): PackAssignment | null {
+  if (raw === "exclude") return "exclude";
+  const size = Number.parseInt(raw, 10);
+  return (PACK_SIZES as readonly number[]).includes(size)
+    ? (size as PackAssignment)
+    : null;
+}
+
+/**
+ * Assign a historical product identity to a pack size, or exclude it.
+ *
+ * Assigning replaces any existing manual entry for the same key and value, so
+ * changing one's mind does not leave two contradictory rules behind. Built-in
+ * aliases are never edited in place — a manual entry simply outranks them.
+ */
+export async function assignPackMapping(form: FormData): Promise<void> {
+  const key = text(form, "key") as MappingKey;
+  const value = text(form, "value");
+  const assignment = parseAssignment(text(form, "assignment"));
+  const note = text(form, "note");
+
+  if (!MAPPING_KEYS.includes(key) || value === "" || assignment === null) return;
+
+  await updateSettings((current) => {
+    const same = (entry: PackMappingEntry) =>
+      entry.origin === "manual" &&
+      entry.key === key &&
+      entry.value.trim().toLowerCase() === value.trim().toLowerCase();
+
+    const entry: PackMappingEntry = {
+      id: current.packModel.mappings.find(same)?.id ?? newId("map"),
+      key,
+      value,
+      assignment,
+      note: note === "" ? null : note,
+      origin: "manual",
+    };
+
+    return {
+      ...current,
+      packModel: {
+        ...current.packModel,
+        mappings: [...current.packModel.mappings.filter((existing) => !same(existing)), entry],
+      },
+    };
+  });
   revalidateDashboard();
 }
 
-export async function removePackOverride(form: FormData): Promise<void> {
+/** Drop a manual assignment. Built-ins are left alone; they are not stored. */
+export async function removePackMapping(form: FormData): Promise<void> {
   const id = text(form, "id");
   await updateSettings((current) => ({
     ...current,
     packModel: {
       ...current.packModel,
-      overrides: current.packModel.overrides.filter((entry) => entry.id !== id),
+      mappings: current.packModel.mappings.filter(
+        (entry) => entry.id !== id || entry.origin === "builtin",
+      ),
     },
   }));
   revalidateDashboard();

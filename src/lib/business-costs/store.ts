@@ -18,6 +18,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
 import { emptySettings } from "./defaults";
+import { builtinMappings } from "./pack-mapping";
+import type { PackMappingEntry, PackRule } from "./pack-model";
 import type { BusinessCostSettings } from "./types";
 
 const DATA_PATH = "data/business-costs.json";
@@ -29,6 +31,62 @@ function filePath(): string {
 let cache: { value: BusinessCostSettings; loadedAt: number } | null = null;
 /** Short, so a change made in one request is visible to the next render. */
 const CACHE_TTL_MS = 1_000;
+
+/**
+ * An earlier model split a pack's cost into product COGS and fulfillment. They
+ * are one operational figure now, so a stored file written before the change is
+ * migrated by adding the two halves rather than being discarded.
+ */
+function migrateRules(raw: unknown, fallback: PackRule[]): PackRule[] {
+  if (!Array.isArray(raw) || raw.length === 0) return fallback;
+
+  return raw.map((rule) => {
+    const record = rule as Partial<PackRule> & { productCogs?: number; fulfillmentCost?: number };
+    if (typeof record.operationalCost === "number") return record as PackRule;
+    const legacy = (record.productCogs ?? 0) + (record.fulfillmentCost ?? 0);
+    return { ...record, operationalCost: legacy } as PackRule;
+  });
+}
+
+/**
+ * Built-ins are merged in on every read rather than written to disk, so
+ * shipping a new alias reaches an existing installation. A manual entry with
+ * the same id wins, which is how a built-in gets corrected.
+ */
+function migrateMappings(raw: unknown): PackMappingEntry[] {
+  const source = raw as
+    | { mappings?: unknown; overrides?: Array<{ id?: string; match?: string; packSize?: number }> }
+    | null
+    | undefined;
+
+  const stored: PackMappingEntry[] = Array.isArray(source?.mappings)
+    ? (source.mappings as PackMappingEntry[]).filter(
+        (entry) => entry && typeof entry.value === "string",
+      )
+    : [];
+
+  // An older file kept a flat `overrides` list that matched any identifier.
+  const legacy: PackMappingEntry[] = Array.isArray(source?.overrides)
+    ? source.overrides
+        .filter((entry) => entry && typeof entry.match === "string")
+        .map((entry) => ({
+          id: entry.id ?? `legacy:${entry.match}`,
+          key: "any" as const,
+          value: entry.match as string,
+          assignment: entry.packSize as PackMappingEntry["assignment"],
+          note: "Migrated from an earlier override",
+          origin: "manual" as const,
+        }))
+    : [];
+
+  const manual = [...stored, ...legacy].map((entry) => ({
+    ...entry,
+    origin: entry.origin === "builtin" ? ("builtin" as const) : ("manual" as const),
+  }));
+
+  const claimed = new Set(manual.map((entry) => entry.id));
+  return [...manual, ...builtinMappings().filter((entry) => !claimed.has(entry.id))];
+}
 
 /**
  * Fill in anything a stored file is missing, so a settings file written by an
@@ -46,10 +104,8 @@ function normalize(raw: Partial<BusinessCostSettings> | null): BusinessCostSetti
       skuCosts: Array.isArray(raw.cogs?.skuCosts) ? raw.cogs.skuCosts : [],
     },
     packModel: {
-      rules: Array.isArray(raw.packModel?.rules) && raw.packModel.rules.length > 0
-        ? raw.packModel.rules
-        : base.packModel.rules,
-      overrides: Array.isArray(raw.packModel?.overrides) ? raw.packModel.overrides : [],
+      rules: migrateRules(raw.packModel?.rules, base.packModel.rules),
+      mappings: migrateMappings(raw.packModel),
       variableRateOfNetRevenue:
         typeof raw.packModel?.variableRateOfNetRevenue === "number"
           ? raw.packModel.variableRateOfNetRevenue

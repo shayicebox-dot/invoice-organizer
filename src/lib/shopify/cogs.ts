@@ -45,6 +45,12 @@ const MAX_PAGES = 40;
 const RESTOCKED_TYPES = new Set(["RETURN", "CANCEL", "LEGACY_RESTOCK"]);
 
 /**
+ * Stand-in for a line with no SKU. A custom item added during an order edit has
+ * none, and those are exactly the lines that need mapping by hand.
+ */
+export const NO_SKU = "(no SKU)";
+
+/**
  * Pack mapping needs only the SKU and titles; the inventory item's cost is
  * needed solely by the `shopify_cost_per_item` source. Asking for it always
  * would demand `read_inventory` from stores that never use it, so the field is
@@ -69,7 +75,9 @@ function buildQuery(includeUnitCost: boolean): string {
           id
           quantity
           sku
+          name
           title
+          variantTitle
           variant {
             id
             sku
@@ -98,7 +106,11 @@ interface LineItemNode {
   id: string;
   quantity: number;
   sku: string | null;
+  /** "Product - Variant", snapshotted on the line. */
+  name: string | null;
   title: string | null;
+  /** Snapshotted on the line, so it survives the variant being deleted. */
+  variantTitle: string | null;
   variant: {
     id: string | null;
     sku: string | null;
@@ -133,6 +145,10 @@ export interface CogsLine {
   sku: string;
   title: string;
   variantTitle: string | null;
+  /** The line's full name as recorded on the order. */
+  lineName: string | null;
+  /** Live variant id, `null` once the variant is gone. */
+  variantId: string | null;
   /** Units originally on the order. */
   quantitySold: number;
   /** Units returned to sellable inventory, whose cost is reversed. */
@@ -236,7 +252,7 @@ export async function fetchShopifyCogs(
         const quantitySold = Number(item.quantity ?? 0);
         if (quantitySold <= 0) continue;
 
-        const sku = item.sku ?? item.variant?.sku ?? "(no SKU)";
+        const sku = item.sku ?? item.variant?.sku ?? NO_SKU;
         const restocked = Math.min(restockedByLine.get(item.id) ?? 0, quantitySold);
         const quantityCosted = quantitySold - restocked;
 
@@ -253,7 +269,12 @@ export async function fetchShopifyCogs(
           date,
           sku,
           title: item.title ?? sku,
-          variantTitle: item.variant?.title ?? null,
+          // The line's own snapshots come first. `variant` is a live lookup
+          // that returns null once a variant is deleted, which is exactly when
+          // an old order still needs to be costed.
+          variantTitle: item.variantTitle ?? item.variant?.title ?? null,
+          lineName: item.name ?? null,
+          variantId: item.variant?.id ?? null,
           quantitySold,
           quantityRestocked: restocked,
           quantityCosted,

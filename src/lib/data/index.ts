@@ -55,7 +55,12 @@ import {
   loadGoogleAdsMetrics,
   probeGoogleAdsStatus,
 } from "./live-google-ads";
-import { type BusinessCostStatus, applyBusinessCosts } from "./live-costs";
+import {
+  type BusinessCostStatus,
+  type HistoricalMapping,
+  applyBusinessCosts,
+  loadHistoricalMapping,
+} from "./live-costs";
 
 export const ALL_STORES = "all" as const;
 
@@ -570,6 +575,21 @@ export async function getLiveTrailingDays(
   const costs = await applyBusinessCosts(result, from, to);
   return costs.days;
 }
+
+/**
+ * Product identities seen on orders, for the Historical Product Mapping page.
+ *
+ * The window is wide on purpose — a gap in June has to be fixable from a page
+ * that is not showing June.
+ */
+export async function getHistoricalMapping(
+  start: ISODate,
+  end: ISODate,
+): Promise<HistoricalMapping> {
+  return loadHistoricalMapping(start, end);
+}
+
+export type { HistoricalMapping };
 
 /** Connection status for the Connections page. Metadata only, no data sync. */
 export async function getShopifyStatus(): Promise<ShopifyStatus> {

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -14,8 +15,8 @@ import {
 } from "@/components/business-costs/section";
 import {
   addExpense,
-  addPackOverride,
-  removePackOverride,
+
+
   addFulfillmentFee,
   addKlaviyoPlan,
   addPaymentProcessor,
@@ -126,7 +127,7 @@ export default async function BusinessCostsPage(props: PageProps<"/business-cost
       {/* ---------------- Pack cost model ---------------- */}
       <CostSection
         title="Pack Cost Model"
-        description="The real cost of a pack, applied to every Shopify line item by pack size. Product cost and fulfillment come from these rules; the percentage below covers processing and small variable costs."
+        description="One flat operational cost per pack, applied to every Shopify line item. Product cost, shipping, storage and pick & pack are all inside it; the percentage below covers processing and other small variable costs."
         source={sources.cogs}
         total={formatMoney(summary.cogs, summary.currency)}
       >
@@ -134,9 +135,8 @@ export default async function BusinessCostsPage(props: PageProps<"/business-cost
           <thead>
             <tr>
               <Th>Pack</Th>
-              <Th align="right">Product COGS</Th>
-              <Th align="right">Shipping / storage / pick &amp; pack</Th>
-              <Th align="right">Total per pack</Th>
+              <Th align="right">Operational cost per pack</Th>
+              <Th>Covers</Th>
               <Th>Effective from</Th>
             </tr>
           </thead>
@@ -144,14 +144,11 @@ export default async function BusinessCostsPage(props: PageProps<"/business-cost
             {settings.packModel.rules.map((rule) => (
               <tr key={rule.id} className="transition-colors hover:bg-surface-muted">
                 <Td className="pr-4 font-medium">{rule.label}</Td>
-                <Td align="right" numeric>
-                  {formatMoney(rule.productCogs)}
-                </Td>
-                <Td align="right" numeric>
-                  {formatMoney(rule.fulfillmentCost)}
-                </Td>
                 <Td align="right" numeric className="font-semibold">
-                  {formatMoney((rule.productCogs + rule.fulfillmentCost) as typeof rule.productCogs)}
+                  {formatMoney(rule.operationalCost)}
+                </Td>
+                <Td className="pr-4 text-ink-secondary">
+                  Product · shipping · storage · pick &amp; pack
                 </Td>
                 <Td className="pr-4 text-ink-secondary">{formatDateLong(rule.effectiveFrom)}</Td>
               </tr>
@@ -170,63 +167,19 @@ export default async function BusinessCostsPage(props: PageProps<"/business-cost
         </p>
 
         <div className="mt-6 border-t border-line pt-5">
-          <h3 className="mb-1 text-[12.5px] font-semibold text-ink">Pack mapping overrides</h3>
-          <p className="mb-3 text-[11.5px] leading-4 text-ink-muted">
-            A line item is mapped by reading its SKU or title. Add an override for anything that
-            cannot be read confidently — run{" "}
-            <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[11px]">
-              npm run verify:packs
-            </code>{" "}
-            to list what needs one.
+          <h3 className="mb-1 text-[12.5px] font-semibold text-ink">Which pack is a line item?</h3>
+          <p className="text-[11.5px] leading-4 text-ink-muted">
+            Every order line is resolved to a pack size through the historical mapping table —
+            {" "}
+            {settings.packModel.mappings.length} entr
+            {settings.packModel.mappings.length === 1 ? "y" : "ies"}, matched on the SKU, variant
+            or title recorded on the order rather than on the catalog as it stands today. Manage
+            it, and assign anything unmapped, on{" "}
+            <Link href="/historical-mapping" className="font-medium text-ink underline">
+              Historical Product Mapping
+            </Link>
+            .
           </p>
-
-          <TableFrame>
-            <thead>
-              <tr>
-                <Th>Matches SKU / variant id / title</Th>
-                <Th align="right">Pack size</Th>
-                <Th />
-              </tr>
-            </thead>
-            <tbody>
-              {settings.packModel.overrides.length === 0 ? (
-                <EmptyRow colSpan={3}>No overrides — every product maps from its own text.</EmptyRow>
-              ) : (
-                settings.packModel.overrides.map((entry) => (
-                  <tr key={entry.id} className="transition-colors hover:bg-surface-muted">
-                    <Td className="pr-4 font-mono text-[12px]">{entry.match}</Td>
-                    <Td align="right" numeric>
-                      {entry.packSize}
-                    </Td>
-                    <Td align="right">
-                      <form action={removePackOverride}>
-                        <input type="hidden" name="id" value={entry.id} />
-                        <RemoveButton />
-                      </form>
-                    </Td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </TableFrame>
-
-          <form action={addPackOverride} className="mt-4 grid gap-3 border-t border-line pt-4 md:grid-cols-3">
-            <Field label="SKU, variant id or exact title">
-              <input name="match" required placeholder="KB-MYSTERY" className={inputClass} />
-            </Field>
-            <Field label="Pack size">
-              <select name="packSize" defaultValue="10" className={inputClass}>
-                <option value="10">10</option>
-                <option value="20">20</option>
-                <option value="50">50</option>
-              </select>
-            </Field>
-            <div className="flex items-end">
-              <button type="submit" className={`${submitClass} w-full`}>
-                Add override
-              </button>
-            </div>
-          </form>
         </div>
       </CostSection>
 

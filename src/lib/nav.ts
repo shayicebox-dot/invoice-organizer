@@ -7,6 +7,7 @@ export const NAV_ITEMS = [
   { href: "/products", label: "Products", icon: "products" },
   { href: "/expenses", label: "Expenses", icon: "expenses" },
   { href: "/business-costs", label: "Business Costs", icon: "costs" },
+  { href: "/historical-mapping", label: "Historical Mapping", icon: "products" },
   { href: "/connections", label: "Connections", icon: "connections" },
   { href: "/stores", label: "Stores", icon: "stores" },
   { href: "/settings", label: "Settings", icon: "settings" },

@@ -6,6 +6,7 @@ import { DailyPlTable } from "@/components/dashboard/daily-pl-table";
 import { NetProfitTrend } from "@/components/charts/net-profit-trend";
 import { RevenueVsExpenses } from "@/components/charts/revenue-vs-expenses";
 import { DataSourceBanner } from "@/components/dashboard/data-source-banner";
+import { MappingGate } from "@/components/dashboard/mapping-gate";
 import {
   getLiveDailyFinancials,
   getLiveRangeReport,
@@ -92,16 +93,23 @@ export default async function OverviewPage(props: PageProps<"/">) {
 
       <DataSourceBanner shopify={shopify} meta={meta} googleAds={googleAds} costs={costs} />
 
+      <MappingGate costs={costs} />
+
       {/* KPI row. Net Profit is the hero figure — one per view. */}
       <div className="grid gap-3 lg:grid-cols-12">
         <NetProfitTile
           className="lg:col-span-4"
+          withheld={!costs.mappingComplete}
           value={formatMoney(summary.netProfit, summary.currency)}
           isLoss={summary.netProfit < 0}
           delta={percentChange(summary.netProfit, previous.netProfit)}
           deltaCaption={comparison}
-          marginLabel={formatPercent(summary.netMargin)}
-          contributionLabel={formatMoney(summary.contributionProfit, summary.currency)}
+          marginLabel={costs.mappingComplete ? formatPercent(summary.netMargin) : "—"}
+          contributionLabel={
+            costs.mappingComplete
+              ? formatMoney(summary.contributionProfit, summary.currency)
+              : "—"
+          }
           note={netProfitNote(
             revenueSource === "live",
             metaSource === "live",
@@ -271,6 +279,10 @@ function netProfitNote(
     .map(([, label]) => label);
   for (const [source, label] of costLabels) {
     if (source === "manual" || source === "manual_real" || source === "live") real.push(label);
+  }
+
+  if (!costs.mappingComplete) {
+    return `${costs.unmappedLineItems} order line(s) are not mapped to a pack, so profit is withheld.`;
   }
 
   if (real.length === 0) return "Every input is mock data.";

@@ -93,6 +93,19 @@ number the product exists to get right.
   reconciliation, and never counted as revenue.
 - **Shipping charged to the customer.** Part of Shopify's Total sales, but not
   of Net Sales, and its cost is accounted for separately.
+
+### Cost is per pack, and never partial
+
+Operational cost comes from the pack a line item is, at a flat rate per pack
+size ($45 / $90 / $225), covering product, shipping, storage and pick & pack
+together. Which pack a line is comes from a durable mapping table keyed on the
+identifiers the *order* recorded, not on the catalog as it stands today — see
+`src/lib/business-costs/pack-mapping.ts`.
+
+A line that cannot be resolved carries no cost, and a period containing one
+reports **P&L INCOMPLETE** with every profit figure withheld. The alternative —
+a cost total quietly missing a line — reports a profit that is too high, and a
+number that is wrong in the flattering direction is the one that gets believed.
 - **Platform-attributed revenue.** Meta and Google each claim the same order.
   Adding them would double- or triple-count. Stored, displayed on the Marketing
   page, never summed into the P&L.

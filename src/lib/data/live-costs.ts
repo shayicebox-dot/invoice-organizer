@@ -24,6 +24,12 @@ import { getShopifyConfig } from "../shopify/config";
 import { fetchShopInfo } from "../shopify/shop";
 import { type ShopifyCogsResult, fetchShopifyCogs } from "../shopify/cogs";
 import { costLine } from "../business-costs/pack-model";
+import { buildIdentityInventory, unmappedRows } from "../business-costs/inventory";
+import { describeIdentity } from "../business-costs/pack-mapping";
+import type { LineIdentity } from "../business-costs/pack-mapping";
+import type { IdentityInput, ProductIdentityRow } from "../business-costs/inventory";
+import type { PackMappingEntry } from "../business-costs/pack-model";
+import { NO_SKU } from "../shopify/cogs";
 import { getGrantedScopes } from "../shopify/client";
 
 export interface BusinessCostStatus {
@@ -33,6 +39,18 @@ export interface BusinessCostStatus {
   missingSkus: string[];
   /** Set when per-SKU data was needed but could not be read. */
   lineItemError: string | null;
+  /**
+   * False when any order line in the range has no pack assignment.
+   *
+   * While this is false the P&L is INCOMPLETE and every profit figure is
+   * withheld. A partial cost total makes profit look better than it is, which
+   * is worse than showing no profit at all.
+   */
+  mappingComplete: boolean;
+  /** The identities that need assigning, worst first. */
+  unmapped: ProductIdentityRow[];
+  unmappedLineItems: number;
+  unmappedQuantity: number;
   updatedAt: string;
 }
 
@@ -48,6 +66,10 @@ export const COSTS_NOT_CONFIGURED: BusinessCostStatus = {
   issues: [],
   missingSkus: [],
   lineItemError: null,
+  mappingComplete: true,
+  unmapped: [],
+  unmappedLineItems: 0,
+  unmappedQuantity: 0,
   updatedAt: new Date(0).toISOString(),
 };
 
@@ -168,38 +190,33 @@ export async function applyBusinessCosts(
     unitsBySkuByDate.set(line.date, bucket);
   }
 
-  // Pack costing: each line is mapped to a 10, 20 or 50 pack and costed by that
-  // pack's rule. A line that cannot be mapped confidently contributes nothing
-  // and is named, so the shortfall is visible rather than absorbed.
-  const packByDate = new Map<string, { cogs: Money; fulfillment: Money }>();
+  // Pack costing: each line is resolved to a 10, 20 or 50 pack and costed at
+  // that pack's flat operational cost. A line that cannot be resolved
+  // contributes nothing, is named, and blocks the profit figures entirely.
+  const packByDate = new Map<string, Money>();
   const unmappedByDate = new Map<string, Set<string>>();
-  const unmappedAll = new Map<string, { label: string; units: number }>();
+  const identityInputs: IdentityInput[] = [];
 
   if (settings.cogs.mode === "pack_cost_model") {
     for (const line of cogsResult.result?.lines ?? []) {
-      const costed = costLine(settings.packModel, line.date, line.quantityCosted, {
-        sku: line.sku,
-        title: line.title,
-        variantTitle: line.variantTitle,
-      });
+      const identity = identityOf(line);
+      identityInputs.push({ ...identity, date: line.date, quantity: line.quantityCosted });
 
-      const bucket = packByDate.get(line.date) ?? { cogs: ZERO, fulfillment: ZERO };
-      bucket.cogs = add(bucket.cogs, costed.productCogs);
-      bucket.fulfillment = add(bucket.fulfillment, costed.fulfillment);
-      packByDate.set(line.date, bucket);
+      const costed = costLine(settings.packModel, line.date, line.quantityCosted, identity);
+      packByDate.set(line.date, add(packByDate.get(line.date) ?? ZERO, costed.operationalCost));
 
-      if (costed.packSize === null && line.quantityCosted > 0) {
-        const label = describeUnmapped(line.sku, line.title, line.variantTitle);
+      if (costed.unmapped) {
         const dayBucket = unmappedByDate.get(line.date) ?? new Set<string>();
-        dayBucket.add(label);
+        dayBucket.add(describeIdentity(identity));
         unmappedByDate.set(line.date, dayBucket);
-
-        const existing = unmappedAll.get(label) ?? { label, units: 0 };
-        existing.units += line.quantityCosted;
-        unmappedAll.set(label, existing);
       }
     }
   }
+
+  const inventory = buildIdentityInventory(settings.packModel, identityInputs);
+  const unmappedList = unmappedRows(inventory);
+  const unmappedQuantity = unmappedList.reduce((acc, row) => acc + row.quantity, 0);
+  const unmappedLineItems = unmappedList.reduce((acc, row) => acc + row.lineItems, 0);
 
   const packAvailable = cogsResult.result !== null;
 
@@ -210,8 +227,7 @@ export async function applyBusinessCosts(
     netSales: netSales(day),
     unitsBySku: unitsBySkuByDate.get(day.date) ?? {},
     shopifyCogs: cogsByDate.get(day.date)?.cogs ?? null,
-    packCogs: packAvailable ? (packByDate.get(day.date)?.cogs ?? ZERO) : null,
-    packFulfillment: packAvailable ? (packByDate.get(day.date)?.fulfillment ?? ZERO) : null,
+    packOperationalCost: packAvailable ? (packByDate.get(day.date) ?? ZERO) : null,
     unmappedLines: [...(unmappedByDate.get(day.date) ?? [])],
   }));
 
@@ -256,17 +272,21 @@ export async function applyBusinessCosts(
     issues.unshift({ section: "cogs", message: cogsResult.error, details: [] });
   }
 
-  // Products that could not be mapped to a pack. Named, never guessed.
-  const unmappedList = [...unmappedAll.values()].sort((a, b) => b.units - a.units);
+  // Products that could not be resolved to a pack. Named, never guessed.
   if (settings.cogs.mode === "pack_cost_model" && unmappedList.length > 0) {
-    const units = unmappedList.reduce((acc, entry) => acc + entry.units, 0);
     issues.push({
       section: "cogs",
       message:
-        `Missing Cost Mapping: ${unmappedList.length} product${unmappedList.length === 1 ? "" : "s"} ` +
-        `could not be mapped to a 10, 20 or 50 pack (${units} unit${units === 1 ? "" : "s"}). ` +
-        `No cost was applied to them, so COGS and fulfillment understate.`,
-      details: unmappedList.map((entry) => `${entry.label} — ${entry.units} unit(s)`),
+        `P&L INCOMPLETE — ${unmappedList.length} historical product${unmappedList.length === 1 ? "" : "s"} ` +
+        `${unmappedList.length === 1 ? "is" : "are"} not mapped to a 10, 20 or 50 pack ` +
+        `(${unmappedLineItems} line item${unmappedLineItems === 1 ? "" : "s"}, ` +
+        `${unmappedQuantity} pack${unmappedQuantity === 1 ? "" : "s"}). ` +
+        `Profit is withheld until they are assigned on the Historical Product Mapping page.`,
+      details: unmappedList.map(
+        (row) =>
+          `${row.label} — ${row.quantity} pack(s) across ${row.lineItems} line item(s), ` +
+          `${row.firstSeen} to ${row.lastSeen}`,
+      ),
     });
   }
 
@@ -286,7 +306,7 @@ export async function applyBusinessCosts(
 
   const missingSkus =
     settings.cogs.mode === "pack_cost_model"
-      ? unmappedList.map((entry) => entry.label)
+      ? unmappedList.map((row) => row.label)
       : settings.cogs.mode === "shopify_cost_per_item"
         ? shopifyMissing
         : calculation.missingSkus;
@@ -298,25 +318,93 @@ export async function applyBusinessCosts(
       ? "incomplete"
       : sources.cogs;
 
-  const shippingSource =
-    settings.cogs.mode === "pack_cost_model" ? cogsSource : sources.shipping;
+  // Under the pack model the P&L is only trustworthy when every line is
+  // mapped. A failure to read line items at all counts as incomplete too.
+  const mappingComplete =
+    settings.cogs.mode !== "pack_cost_model" ||
+    (unmappedList.length === 0 && packAvailable && cogsResult.error === null);
 
   return {
     days: applied,
     status: {
       configured: true,
-      sources: { ...sources, cogs: cogsSource, shipping: shippingSource },
+      sources: { ...sources, cogs: cogsSource },
       issues,
       missingSkus,
       lineItemError: cogsResult.error,
+      mappingComplete,
+      unmapped: unmappedList,
+      unmappedLineItems,
+      unmappedQuantity,
       updatedAt: settings.updatedAt,
     },
   };
 }
 
-/** A stable, human label for a line that could not be mapped to a pack. */
-function describeUnmapped(sku: string, title: string, variantTitle: string | null): string {
-  const name = [title, variantTitle].filter((part) => part && part !== "Default").join(" · ");
-  if (sku && sku !== "(no SKU)") return `${sku}${name ? ` — ${name}` : ""}`;
-  return name || "(unnamed line item)";
+/** The identity a line carries, as the order recorded it. */
+export function identityOf(line: {
+  sku: string;
+  title: string;
+  variantTitle: string | null;
+  lineName: string | null;
+  variantId: string | null;
+}): LineIdentity {
+  return {
+    sku: line.sku === NO_SKU ? null : line.sku,
+    title: line.title,
+    variantTitle: line.variantTitle,
+    variantId: line.variantId,
+    lineName: line.lineName,
+  };
+}
+
+
+/** What the Historical Product Mapping page renders. */
+export interface HistoricalMapping {
+  /** Every product identity seen in the window, unmapped ones first. */
+  rows: ProductIdentityRow[];
+  /** The mapping table itself, manual entries and built-in aliases. */
+  entries: PackMappingEntry[];
+  start: ISODate;
+  end: ISODate;
+  ordersScanned: number;
+  /** Set when Shopify line items could not be read at all. */
+  error: string | null;
+  /** True when the window was cut short by a page cap. */
+  truncated: boolean;
+}
+
+/**
+ * Every product identity that appeared on an order in the window.
+ *
+ * Deliberately scans a wide window rather than the dashboard's selected range:
+ * the point of the page is to close mapping gaps everywhere, so that a P&L for
+ * any past range is trustworthy. Mapping something that last sold in June from
+ * a page showing August would be impossible otherwise.
+ */
+export async function loadHistoricalMapping(
+  start: ISODate,
+  end: ISODate,
+): Promise<HistoricalMapping> {
+  const settings = await readSettings();
+  const { result, error } = await loadShopifyCogs(start, end, false);
+
+  const inputs: IdentityInput[] = (result?.lines ?? []).map((line) => ({
+    ...identityOf(line),
+    date: line.date,
+    quantity: line.quantityCosted,
+  }));
+
+  return {
+    rows: buildIdentityInventory(settings.packModel, inputs),
+    entries: [...settings.packModel.mappings].sort((a, b) => {
+      if (a.origin !== b.origin) return a.origin === "manual" ? -1 : 1;
+      return a.value.localeCompare(b.value);
+    }),
+    start,
+    end,
+    ordersScanned: new Set((result?.lines ?? []).map((line) => line.orderId)).size,
+    error,
+    truncated: result?.truncated ?? false,
+  };
 }

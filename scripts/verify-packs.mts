@@ -39,7 +39,10 @@ const { fetchShopInfo } = await import("../src/lib/shopify/shop");
 const { getShopifyConfig } = await import("../src/lib/shopify/config");
 const { getGrantedScopes } = await import("../src/lib/shopify/client");
 const { readSettings } = await import("../src/lib/business-costs/store");
-const { costLine, matchPack } = await import("../src/lib/business-costs/pack-model");
+const { costLine } = await import("../src/lib/business-costs/pack-model");
+const { buildIdentityInventory } = await import("../src/lib/business-costs/inventory");
+const { describeIdentity } = await import("../src/lib/business-costs/pack-mapping");
+const { identityOf } = await import("../src/lib/data/live-costs");
 const { formatMoney, toMinor, fromMinor } = await import("../src/lib/money");
 
 const [startArg, endArg] = process.argv.slice(2).filter((a) => !a.startsWith("-"));
@@ -91,19 +94,15 @@ const model = settings.packModel;
 console.log("Cost model in force");
 console.log("-".repeat(108));
 for (const rule of model.rules) {
-  const total = toMinor(rule.productCogs) + toMinor(rule.fulfillmentCost);
   console.log(
-    `  ${rule.label.padEnd(14)} COGS ${formatMoney(rule.productCogs).padStart(9)}` +
-      `   fulfillment ${formatMoney(rule.fulfillmentCost).padStart(9)}` +
-      `   total ${formatMoney(fromMinor(total)).padStart(9)}`,
+    `  ${rule.label.padEnd(14)} operational cost ${formatMoney(rule.operationalCost).padStart(9)}` +
+      "   (product · shipping · storage · pick & pack)",
   );
 }
 console.log(
   `  Other variable  ${(model.variableRateOfNetRevenue * 100).toFixed(1)}% of Shopify net revenue`,
 );
-if (model.overrides.length > 0) {
-  console.log(`  Overrides       ${model.overrides.length} configured`);
-}
+console.log(`  Mapping table   ${model.mappings.length} entries`);
 console.log();
 
 const shop = await fetchShopInfo();
@@ -115,61 +114,29 @@ if (result.lines.length === 0) {
   process.exit(0);
 }
 
-// --- Aggregate by product/variant ----------------------------------------
+const rows = buildIdentityInventory(
+  model,
+  result.lines.map((line) => ({
+    ...identityOf(line),
+    date: line.date,
+    quantity: line.quantityCosted,
+  })),
+);
 
-interface Row {
-  key: string;
-  sku: string;
-  title: string;
-  variantTitle: string | null;
-  packSize: number | null;
-  confidence: string;
-  units: number;
-  cogs: number;
-  fulfillment: number;
-}
-
-const rows = new Map<string, Row>();
-
+const costByKey = new Map<string, number>();
 for (const line of result.lines) {
-  const key = `${line.sku}||${line.title}||${line.variantTitle ?? ""}`;
-  const match = matchPack(model, {
-    sku: line.sku,
-    title: line.title,
-    variantTitle: line.variantTitle,
-  });
-  const costed = costLine(model, line.date, line.quantityCosted, {
-    sku: line.sku,
-    title: line.title,
-    variantTitle: line.variantTitle,
-  });
-
-  const row = rows.get(key) ?? {
-    key,
-    sku: line.sku,
-    title: line.title,
-    variantTitle: line.variantTitle,
-    packSize: match.packSize,
-    confidence: match.confidence,
-    units: 0,
-    cogs: 0,
-    fulfillment: 0,
-  };
-
-  row.units += line.quantityCosted;
-  row.cogs += toMinor(costed.productCogs);
-  row.fulfillment += toMinor(costed.fulfillment);
-  rows.set(key, row);
+  const identity = identityOf(line);
+  const costed = costLine(model, line.date, line.quantityCosted, identity);
+  const row = rows.find((candidate) => candidate.label === describeIdentity(identity));
+  if (!row) continue;
+  costByKey.set(row.key, (costByKey.get(row.key) ?? 0) + toMinor(costed.operationalCost));
 }
 
-const all = [...rows.values()].sort((a, b) => b.units - a.units);
-const mapped = all.filter((row) => row.packSize !== null);
-const unmapped = all.filter((row) => row.packSize === null && row.units > 0);
+const mapped = rows.filter((row) => row.status !== "unmapped");
+const unmapped = rows.filter((row) => row.status === "unmapped");
 
 const pad = (v: string, w: number) => v.padEnd(w).slice(0, w);
 const rpad = (v: string, w: number) => v.padStart(w);
-
-// --- Mapped ---------------------------------------------------------------
 
 console.log("MAPPED PRODUCTS");
 console.log("-".repeat(108));
@@ -178,73 +145,58 @@ if (mapped.length === 0) {
 } else {
   console.log(
     pad("SKU", 18) + pad("PRODUCT TITLE", 30) + pad("VARIANT", 18) +
-      rpad("PACK", 5) + rpad("VIA", 9) + rpad("QTY", 6) +
-      rpad("COGS", 11) + rpad("FULFIL", 11),
+      rpad("PACK", 6) + rpad("VIA", 10) + rpad("QTY", 6) + rpad("COST", 12),
   );
-  for (const size of [10, 20, 50]) {
-    const group = mapped.filter((row) => row.packSize === size);
-    if (group.length === 0) continue;
-    console.log(`\n  Pack of ${size}`);
-    for (const row of group) {
-      console.log(
-        "  " + pad(row.sku || "—", 16) +
-          pad(row.title || "—", 30) +
-          pad(row.variantTitle && row.variantTitle !== "Default" ? row.variantTitle : "—", 18) +
-          rpad(String(row.packSize), 5) + rpad(row.confidence, 9) +
-          rpad(String(row.units), 6) + rpad(formatMoney(fromMinor(row.cogs)), 11) +
-          rpad(formatMoney(fromMinor(row.fulfillment)), 11),
-      );
-    }
+  for (const row of mapped) {
+    console.log(
+      pad(row.sku || "—", 18) +
+        pad(row.title || row.lineName || "—", 30) +
+        pad(row.variantTitle && row.variantTitle !== "Default" ? row.variantTitle : "—", 18) +
+        rpad(row.packSize === null ? "excl" : String(row.packSize), 6) +
+        rpad(row.confidence, 10) +
+        rpad(String(row.quantity), 6) +
+        rpad(formatMoney(fromMinor(costByKey.get(row.key) ?? 0)), 12),
+    );
   }
   console.log();
 }
 
-// --- Unmapped -------------------------------------------------------------
-
 console.log("MISSING COST MAPPING");
 console.log("-".repeat(108));
 if (unmapped.length === 0) {
-  console.log("  None — every product sold in this range mapped to a pack.\n");
+  console.log("  None — every product sold in this range maps to a pack.\n");
 } else {
   console.log(
-    pad("SKU", 20) + pad("PRODUCT TITLE", 32) + pad("VARIANT", 20) +
-      rpad("QTY", 6) + rpad("REASON", 12),
+    pad("SKU", 20) + pad("PRODUCT TITLE", 32) + pad("VARIANT", 18) +
+      rpad("QTY", 6) + rpad("REASON", 14) + rpad("FIRST SEEN", 13),
   );
   for (const row of unmapped) {
     console.log(
       pad(row.sku || "—", 20) +
-        pad(row.title || "—", 32) +
-        pad(row.variantTitle && row.variantTitle !== "Default" ? row.variantTitle : "—", 20) +
-        rpad(String(row.units), 6) + rpad(row.confidence, 12),
+        pad(row.title || row.lineName || "—", 32) +
+        pad(row.variantTitle && row.variantTitle !== "Default" ? row.variantTitle : "—", 18) +
+        rpad(String(row.quantity), 6) + rpad(row.confidence, 14) + rpad(row.firstSeen, 13),
     );
   }
-  console.log(
-    "\n  These contribute NO cost. Add an override on the Business Costs page,",
-  );
-  console.log("  or rename the product/SKU so the pack size is unambiguous.\n");
+  console.log("\n  These carry NO cost, so the P&L withholds profit for any range containing");
+  console.log("  them. Assign each one on the Historical Product Mapping page.\n");
 }
 
-// --- Totals ---------------------------------------------------------------
-
-const totalCogs = all.reduce((acc, row) => acc + row.cogs, 0);
-const totalFulfil = all.reduce((acc, row) => acc + row.fulfillment, 0);
-const totalUnits = all.reduce((acc, row) => acc + row.units, 0);
+const totalCost = [...costByKey.values()].reduce((acc, value) => acc + value, 0);
+const totalQuantity = rows.reduce((acc, row) => acc + row.quantity, 0);
 
 console.log("TOTALS");
 console.log("-".repeat(108));
-console.log(`  pack quantities costed  ${totalUnits}`);
-console.log(`  product COGS        ${formatMoney(fromMinor(totalCogs))}`);
-console.log(`  shipping/fulfilment ${formatMoney(fromMinor(totalFulfil))}`);
-console.log(`  operational cost    ${formatMoney(fromMinor(totalCogs + totalFulfil))}`);
+console.log(`  pack quantities costed  ${totalQuantity}`);
+console.log(`  operational cost        ${formatMoney(fromMinor(totalCost))}`);
 console.log(
-  `\n  Note: quantities above are line-item pack quantities, not individual boxes.
-  The ${(model.variableRateOfNetRevenue * 100).toFixed(1)}% of net revenue is applied on top of these,`,
+  `\n  Quantities are line-item pack quantities, not individual boxes. The ` +
+    `${(model.variableRateOfNetRevenue * 100).toFixed(1)}% of net revenue is applied on top.\n`,
 );
-console.log("  and covers payment processing, platform fees and small variable costs.\n");
 
 if (unmapped.length > 0) {
-  console.log(`✗ ${unmapped.length} product(s) need cost mapping. The P&L is incomplete.\n`);
+  console.log(`✗ ${unmapped.length} product(s) need cost mapping. The P&L is INCOMPLETE.\n`);
   process.exit(2);
 }
 
-console.log("✓ Every product mapped. COGS and fulfillment are complete for this range.\n");
+console.log("✓ Every product mapped. Operational cost is complete for this range.\n");

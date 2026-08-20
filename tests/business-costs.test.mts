@@ -118,8 +118,7 @@ function volume(over: Partial<DailyVolume> = {}): DailyVolume {
     netSales: fromMajor(10_000),
     unitsBySku: { "SKU-1": 150, "SKU-2": 100 },
     shopifyCogs: null,
-    packCogs: null,
-    packFulfillment: null,
+    packOperationalCost: null,
     unmappedLines: [],
     ...over,
   };
@@ -232,7 +231,7 @@ describe("calculateCosts", () => {
   it("marks COGS incomplete when Shopify line items are unavailable", () => {
     // The pack model needs line items to identify packs. Without them nothing
     // is costed, and nothing is guessed.
-    const result = calculateCosts(emptySettings(), [volume({ packCogs: null })]);
+    const result = calculateCosts(emptySettings(), [volume({ packOperationalCost: null })]);
 
     assert.equal(result.sources.cogs, "incomplete");
     assert.equal(toMinor(result.days[0].cogs), 0);
@@ -252,7 +251,7 @@ describe("calculateCosts", () => {
   it("charges 5% of net revenue and no separate payment fee", () => {
     const settings = emptySettings();
     const result = calculateCosts(settings, [
-      volume({ netSales: fromMajor(10_000), packCogs: fromMajor(2_000), packFulfillment: fromMajor(1_750) }),
+      volume({ netSales: fromMajor(10_000), packOperationalCost: fromMajor(2_000)}),
     ]);
 
     // Processing sits inside the 5%, so charging it again would double count.
@@ -262,21 +261,33 @@ describe("calculateCosts", () => {
     assert.equal(result.sources.otherExpenses, "manual_real");
   });
 
-  it("takes COGS and fulfillment straight from the pack costing", () => {
+  it("takes the whole operational cost straight from the pack costing", () => {
     const result = calculateCosts(emptySettings(), [
-      volume({ packCogs: fromMajor(2_400), packFulfillment: fromMajor(2_100) }),
+      volume({ packOperationalCost: fromMajor(2_400) }),
     ]);
     assert.equal(toMinor(result.days[0].cogs), toMinor(fromMajor(2_400)));
-    assert.equal(toMinor(result.days[0].shipping), toMinor(fromMajor(2_100)));
     assert.equal(result.sources.cogs, "manual_real");
-    assert.equal(result.sources.shipping, "manual_real");
+  });
+
+  it("does not charge shipping twice — it is inside the pack cost", () => {
+    const result = calculateCosts(emptySettings(), [
+      volume({ packOperationalCost: fromMajor(2_400) }),
+    ]);
+    assert.equal(toMinor(result.days[0].shipping), 0);
+    // Nothing is missing here: fulfillment is accounted for one line up, so
+    // labelling this "incomplete" would send the merchant looking for a gap
+    // that does not exist.
+    assert.equal(result.sources.shipping, "not_configured");
+    assert.equal(
+      result.issues.some((issue) => issue.section === "shipping"),
+      false,
+    );
   });
 
   it("reports unmapped products and marks COGS incomplete", () => {
     const result = calculateCosts(emptySettings(), [
       volume({
-        packCogs: fromMajor(100),
-        packFulfillment: fromMajor(90),
+        packOperationalCost: fromMajor(100),
         unmappedLines: ["GIFT-CARD — Gift card"],
       }),
     ]);

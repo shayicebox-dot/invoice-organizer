@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Card, CardHeader } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DailyPlTable } from "@/components/dashboard/daily-pl-table";
+import { MappingGate } from "@/components/dashboard/mapping-gate";
 import { TableFrame, Td, Th } from "@/components/ui/table";
 import { getLiveDailyFinancials, getLiveRangeReport, getStores } from "@/lib/data";
 import { SourceTag } from "@/components/ui/source-tag";
@@ -31,6 +32,8 @@ interface StatementLine {
   label: string;
   amount: Money;
   kind: "revenue" | "cost" | "subtotal" | "total" | "memo";
+  /** A profit figure that cannot be trusted yet, so it is not shown at all. */
+  withheld?: boolean;
   note?: string;
   /** Where the figure came from. Subtotals inherit from their inputs. */
   source?: "live" | "manual-real" | "mock" | "missing" | "not-configured";
@@ -45,6 +48,11 @@ function buildStatement(
   googleLive: boolean,
 ): StatementLine[] {
   const revenueSource = shopifyLive ? ("live" as const) : ("mock" as const);
+  // Every cost line above a profit line has to be complete for that profit to
+  // mean anything. While mapping is open, the profit rows are withheld rather
+  // than shown understated.
+  const withheld = !costs.mappingComplete;
+  const packMode = costs.sources.shipping === "not_configured" && summary.shipping === 0;
 
   return [
     { label: "Gross sales", amount: summary.grossSales, kind: "revenue", note: "Shopify, before discounts", source: revenueSource },
@@ -52,10 +60,12 @@ function buildStatement(
     { label: "Sales reversals", amount: summary.salesReversals, kind: "cost", note: "Returns, dated to the refund", source: revenueSource },
     { label: "Net sales", amount: summary.netSales, kind: "subtotal" },
 
-    { label: "Product COGS", amount: summary.cogs, kind: "cost", note: "Pack cost model × Shopify line items", source: tag(costs.sources.cogs) },
-    { label: "Gross profit", amount: (summary.netSales - summary.cogs) as Money, kind: "subtotal" },
+    { label: "Operational cost", amount: summary.cogs, kind: "cost", note: "$45 / $90 / $225 per pack — product, shipping, storage, pick & pack", source: tag(costs.sources.cogs) },
+    { label: "Gross profit", amount: (summary.netSales - summary.cogs) as Money, kind: "subtotal", withheld },
 
-    { label: "Shipping & fulfillment", amount: summary.shipping, kind: "cost", note: "Shipping, storage, pick & pack", source: tag(costs.sources.shipping) },
+    ...(packMode
+      ? []
+      : [{ label: "Shipping & fulfillment", amount: summary.shipping, kind: "cost" as const, note: "Shipping, storage, pick & pack", source: tag(costs.sources.shipping) }]),
     ...(summary.paymentFees === 0 && costs.sources.paymentFees === "manual_real"
       ? []
       : [{ label: "Payment processing fees", amount: summary.paymentFees, kind: "cost" as const, source: tag(costs.sources.paymentFees) }]),
@@ -63,12 +73,12 @@ function buildStatement(
     { label: "Google Ads", amount: summary.googleAdSpend, kind: "cost", source: googleLive ? ("live" as const) : ("mock" as const) },
     { label: "Email & SMS platform", amount: summary.emailSpend, kind: "cost", source: tag(costs.sources.klaviyo) },
     { label: "Other variable costs", amount: summary.variableExpenses, kind: "cost", note: "5% of net revenue · includes processing", source: tag(costs.sources.otherExpenses) },
-    { label: "Contribution profit", amount: summary.contributionProfit, kind: "subtotal" },
+    { label: "Contribution profit", amount: summary.contributionProfit, kind: "subtotal", withheld },
 
     ...(summary.fixedExpenses === 0 && costs.sources.otherExpenses === "manual_real"
       ? []
       : [{ label: "Fixed expenses", amount: summary.fixedExpenses, kind: "cost" as const, note: "Allocated across the period", source: tag(costs.sources.otherExpenses) }]),
-    { label: "Net profit", amount: summary.netProfit, kind: "total", note: "Operating profit" },
+    { label: "Net profit", amount: summary.netProfit, kind: "total", note: "Operating profit", withheld },
 
     // Collected on behalf of the authorities, so it is never revenue and never
     // a cost. Shown only so the statement reconciles against Shopify's own
@@ -87,6 +97,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
   const metaLive = report.meta.state === "connected";
   const googleLive = report.googleAds.state === "connected";
 
+  const mappingComplete = report.costs.mappingComplete;
   const statement = buildStatement(report.summary, costTag, report.costs, shopifyLive, metaLive, googleLive);
   const previousStatement = buildStatement(report.previous, costTag, report.costs, shopifyLive, metaLive, googleLive);
   const comparison = describeComparison(view.range);
@@ -109,6 +120,8 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
         title="Profit & Loss"
         description={`${view.scopeLabel} · ${view.range.label}. Net sales down to operating profit, with every line as a share of net sales.`}
       />
+
+      <MappingGate costs={report.costs} />
 
       <div className="grid gap-3 xl:grid-cols-3">
         <Card className="xl:col-span-2">
@@ -133,6 +146,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
                   const isTotal = line.kind === "total";
                   const isSubtotal = line.kind === "subtotal";
                   const isMemo = line.kind === "memo";
+                  const isWithheld = line.withheld === true;
 
                   return (
                     <tr
@@ -167,13 +181,16 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
                         numeric
                         className={cn(
                           (isSubtotal || isTotal) && "font-semibold",
-                          isTotal && line.amount < 0 && "text-negative",
+                          isTotal && !isWithheld && line.amount < 0 && "text-negative",
+                          isWithheld && "text-amber-700",
                         )}
                       >
-                        {formatMoney(line.amount, report.summary.currency)}
+                        {isWithheld
+                          ? "INCOMPLETE"
+                          : formatMoney(line.amount, report.summary.currency)}
                       </Td>
                       <Td align="right" numeric className="text-ink-secondary">
-                        {isMemo ? "—" : formatPercent(share)}
+                        {isMemo || isWithheld ? "—" : formatPercent(share)}
                       </Td>
                       <Td
                         align="right"
@@ -186,7 +203,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
                               : "text-negative",
                         )}
                       >
-                        {change === null || isMemo
+                        {change === null || isMemo || isWithheld
                           ? "—"
                           : `${change > 0 ? "+" : "−"}${formatPercent(Math.abs(change))}`}
                       </Td>
@@ -202,12 +219,19 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
           <Card>
             <CardHeader title="Margins" description="Derived from the totals above." />
             <dl className="mt-4 space-y-3">
-              <MarginRow label="Gross margin" value={formatPercent(report.summary.grossMargin)} />
+              <MarginRow
+                label="Gross margin"
+                value={mappingComplete ? formatPercent(report.summary.grossMargin) : "—"}
+              />
               <MarginRow
                 label="Contribution margin"
-                value={formatPercent(report.summary.contributionMargin)}
+                value={mappingComplete ? formatPercent(report.summary.contributionMargin) : "—"}
               />
-              <MarginRow label="Net margin" value={formatPercent(report.summary.netMargin)} emphasized />
+              <MarginRow
+                label="Net margin"
+                value={mappingComplete ? formatPercent(report.summary.netMargin) : "—"}
+                emphasized
+              />
             </dl>
           </Card>
 

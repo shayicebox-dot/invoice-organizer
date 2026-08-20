@@ -37,11 +37,11 @@ export interface DailyVolume {
    */
   shopifyCogs: Money | null;
   /**
-   * COGS and fulfillment from the pack cost model, already costed against the
-   * day's real line items. `null` when the lines could not be read.
+   * The day's total operational cost from the pack model — product, shipping,
+   * storage and pick & pack together — already costed against the day's real
+   * line items. `null` when the lines could not be read at all.
    */
-  packCogs: Money | null;
-  packFulfillment: Money | null;
+  packOperationalCost: Money | null;
   /** Line descriptions that could not be mapped to a pack size. */
   unmappedLines: string[];
 }
@@ -122,10 +122,10 @@ function computeCogs(settings: BusinessCostSettings, volume: DailyVolume): CogsR
   if (settings.cogs.mode === "pack_cost_model") {
     // Costed upstream against the day's real line items, because the pack rule
     // applies per line and the line detail lives with the Shopify reader.
-    if (volume.packCogs === null) {
+    if (volume.packOperationalCost === null) {
       return { amount: ZERO, missing: [], usable: false };
     }
-    return { amount: volume.packCogs, missing: volume.unmappedLines, usable: true };
+    return { amount: volume.packOperationalCost, missing: volume.unmappedLines, usable: true };
   }
 
   if (settings.cogs.mode === "shopify_cost_per_item") {
@@ -165,12 +165,11 @@ function computeCogs(settings: BusinessCostSettings, volume: DailyVolume): CogsR
 // --- Shipping --------------------------------------------------------------
 
 function computeShipping(settings: BusinessCostSettings, volume: DailyVolume): Money {
-  // Under the pack model, fulfillment is part of the pack rule — shipping,
-  // storage and pick & pack are one figure per pack — so the per-order and
-  // per-unit rate table does not apply.
+  // Under the pack model, shipping, storage and pick & pack are already inside
+  // the pack's operational cost. Charging them again here would double count,
+  // so this line carries only fixed fulfillment fees a merchant added on top.
   if (settings.cogs.mode === "pack_cost_model") {
-    const packFulfillment = volume.packFulfillment ?? ZERO;
-    return add(packFulfillment, dailyShareOfAll(settings.shipping.fixedFees, volume.date));
+    return dailyShareOfAll(settings.shipping.fixedFees, volume.date);
   }
 
   const rates = effectiveRecords(settings.shipping.rates, volume.date);
@@ -322,7 +321,7 @@ export function calculateCosts(
       section: "cogs",
       message:
         settings.cogs.mode === "pack_cost_model"
-          ? `${missingSkus.size} product${missingSkus.size === 1 ? "" : "s"} could not be mapped to a 10, 20 or 50 pack. No cost was applied to them, so COGS and fulfillment understate.`
+          ? `${missingSkus.size} product${missingSkus.size === 1 ? "" : "s"} could not be mapped to a 10, 20 or 50 pack. No cost was applied to them, so the P&L is incomplete and profit is withheld.`
           : `${missingSkus.size} SKU${missingSkus.size === 1 ? "" : "s"} sold with no configured unit cost, so COGS understates.`,
       details: [...missingSkus].sort(),
     });
@@ -372,7 +371,10 @@ export function calculateCosts(
 
   const sources: CostSourceMap = {
     cogs: cogsSource,
-    shipping: packMode ? cogsSource : hasShippingRates ? "manual" : "mock",
+    // Fulfillment is inside the pack's operational cost, so this line is only
+    // the extra fixed fees. Reporting it as missing would be wrong: nothing is
+    // missing, it is accounted for one line up.
+    shipping: packMode ? (hasShippingRates ? "manual" : "not_configured") : hasShippingRates ? "manual" : "mock",
     // Processing sits inside the percentage of revenue under the pack model.
     paymentFees: packMode ? "manual_real" : hasProcessors ? "manual" : "mock",
     klaviyo: hasKlaviyo ? "manual" : packMode ? "not_configured" : "mock",

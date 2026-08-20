@@ -188,20 +188,75 @@ same command verifies any range.
 
 ### The pack cost model
 
-Cost is driven by pack size, not by a per-item cost. This is the default and the
-real Kicks Box model:
+One flat operational cost per pack size. This is the default and the real Kicks
+Box model:
 
-| Pack | Product COGS | Shipping, storage, pick & pack | Total per pack |
-|---|---|---|---|
-| 10 | $24 | $21 | $45 |
-| 20 | $48 | $42 | $90 |
-| 50 | $120 | $105 | $225 |
+| Pack | Operational cost | Covers |
+|---|---|---|
+| 10 | **$45** | product · shipping · storage · pick & pack |
+| 20 | **$90** | product · shipping · storage · pick & pack |
+| 50 | **$225** | product · shipping · storage · pick & pack |
+
+There is no separate COGS and fulfillment split, and nothing is read from
+Shopify's cost per item or from inventory valuation — the business knows what a
+pack costs.
 
 Plus **5% of Shopify net revenue** for other variable costs — payment
 processing, Shopify fees and apps, and small variable operating expenses. It is
 charged in addition to the pack costs, and excludes Meta and Google spend, which
 come from the ad platforms directly. Because processing lives inside this 5%,
 there is no separate payment-fee line.
+
+### Historical product mapping
+
+An order line is a *snapshot*. It records the SKU, product title and variant
+title as they were on the day it was placed, and those drift: a variant is
+renamed, a product is deleted, an item is typed straight into an order edit with
+no product behind it at all. Anything that resolves a pack size by looking up
+the catalog as it stands today quietly stops costing old orders — which is how a
+June P&L ends up with a profit figure and no COGS.
+
+So `src/lib/business-costs/pack-mapping.ts` resolves against a durable table
+instead, in this order:
+
+1. a **manual assignment** made on the Historical Product Mapping page, keyed on
+   whichever identifier the line actually carries — its SKU where it has one;
+2. a **built-in alias** for an identifier the business has used historically;
+3. the **line's own text**, but only when it states a pack size unambiguously.
+
+Step 3 refuses more than it accepts. Two rules disqualify a line from text
+matching entirely and send it to the merchant instead:
+
+- a **partial-quantity word** — `half of 50-pack` is not a 50-pack, and costing
+  it as one overstates cost by $225 a unit;
+- a **pack size the business does not sell** — `30-pack` proves the text uses
+  pack wording, so reading some other number out of it would be inventing an
+  answer.
+
+#### Nothing partial is ever shown as profit
+
+While any order line in a period is unmapped, `/` and `/profit-and-loss` report
+**P&L INCOMPLETE**: gross profit, contribution profit, net profit and every
+margin are withheld, and the responsible lines are named with their SKU, first
+and last sale date, line-item count and quantity. Revenue and the costs that
+*are* known still display. A cost total that silently omits a line makes profit
+look better than it is, which is the failure this whole layer exists to prevent.
+
+`/historical-mapping` lists every product identity ever seen on an order —
+title, variant, SKU, first seen, last seen, quantity sold, detected pack size,
+status — and assigns each one to 10, 20, 50, or **Exclude from costing**.
+
+Reconcile several past periods at once:
+
+```bash
+npm run verify:history                                    # June, July, August 2026
+npm run verify:history -- 2026-06-01:2026-06-30           # explicit periods
+```
+
+For each period it prints Shopify net sales, orders, the 10/20/50 pack
+quantities, unmapped quantity, operational cost, Meta spend, Google spend, the
+5% variable cost — and Net Profit **only** when the period is fully mapped. It
+exits non-zero and names what is missing otherwise.
 
     Net Profit = Shopify net revenue
                − product COGS
@@ -279,9 +334,9 @@ non-zero if any SKU is missing a cost.
 
 ### Known limitations
 
-- **COGS reverses on the order's date.** Revenue reversals are dated to the
-  refund, but the pack cost model still reverses a returned unit's cost on the
-  order's date. Within a range containing both dates the totals agree; a range
+- **Operational cost reverses on the order's date.** Revenue reversals are dated
+  to the refund, but the pack cost model still reverses a returned pack's cost on
+  the order's date. Within a range containing both dates the totals agree; a range
   that splits them shows the reversal on one side and its cost on the other.
 - **60-day history.** Shopify restricts apps to the last 60 days of orders
   unless `read_all_orders` is granted. Days outside the accessible window report
@@ -532,6 +587,7 @@ npm run test       # node --test
 npm run check      # lint + typecheck + test + build, in that order
 
 npm run verify:revenue   # Shopify revenue against Shopify Analytics
+npm run verify:history   # historical P&L across several past periods
 npm run verify:packs     # pack mapping against the real catalog
 npm run verify:cogs      # per-SKU cost of goods sold
 npm run verify:pl        # the full live profit ladder
@@ -627,6 +683,8 @@ tooltip shows is also present in the Daily P&L table below it.
 | `/orders` | Recent orders with per-order contribution after product, shipping and fees |
 | `/products` | Units, revenue, COGS and gross margin per SKU |
 | `/expenses` | Variable and fixed expenses, and how allocation works |
+| `/business-costs` | Pack cost rules, processing, Klaviyo and other configured costs |
+| `/historical-mapping` | Every product identity seen on an order, and the pack size it costs at |
 | `/connections` | Provider cards by category — Commerce, Advertising, Email & SMS, Fulfillment, Payments |
 | `/stores` | Every store, its own P&L, and its connection count |
 | `/settings` | Organization, profit definitions, money model, allocation method |

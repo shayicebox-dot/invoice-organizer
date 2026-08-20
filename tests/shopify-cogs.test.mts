@@ -25,6 +25,8 @@ function line(over: Partial<CogsLine> = {}): CogsLine {
     sku: "SKU-1",
     title: "Product",
     variantTitle: "Default",
+    lineName: "Product - Default",
+    variantId: "gid://shopify/ProductVariant/1",
     quantitySold,
     quantityRestocked,
     quantityCosted,

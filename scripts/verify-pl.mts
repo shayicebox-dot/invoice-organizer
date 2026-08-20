@@ -41,6 +41,8 @@ const { fetchShopInfo } = await import("../src/lib/shopify/shop");
 const { fetchShopifyCogs } = await import("../src/lib/shopify/cogs");
 const { readSettings } = await import("../src/lib/business-costs/store");
 const { costLine } = await import("../src/lib/business-costs/pack-model");
+const { describeIdentity } = await import("../src/lib/business-costs/pack-mapping");
+const { identityOf } = await import("../src/lib/data/live-costs");
 
 const [startArg, endArg] = process.argv.slice(2).filter((a) => !a.startsWith("-"));
 
@@ -81,7 +83,7 @@ console.log(`  Klaviyo              ${label(status.costs.sources.klaviyo)}`);
  * Pack quantities sold, by pack size. Read separately from the same Shopify
  * data the P&L used, so the split can be reconciled against the totals below.
  */
-const packTotals = new Map<number, { quantity: number; cogs: number; fulfillment: number }>();
+const packTotals = new Map<number, { quantity: number; cost: number }>();
 let unmappedQuantity = 0;
 const unmappedNames = new Set<string>();
 
@@ -93,24 +95,20 @@ if (getShopifyConfig()) {
     const cogs = await fetchShopifyCogs(start, end, shop, { includeUnitCost: false });
 
     for (const line of cogs.lines) {
-      const costed = costLine(settings.packModel, line.date, line.quantityCosted, {
-        sku: line.sku,
-        title: line.title,
-        variantTitle: line.variantTitle,
-      });
+      const identity = identityOf(line);
+      const costed = costLine(settings.packModel, line.date, line.quantityCosted, identity);
 
       if (costed.packSize === null) {
-        if (line.quantityCosted > 0) {
+        if (costed.unmapped) {
           unmappedQuantity += line.quantityCosted;
-          unmappedNames.add(`${line.sku || "—"} · ${line.title}`);
+          unmappedNames.add(describeIdentity(identity));
         }
         continue;
       }
 
-      const bucket = packTotals.get(costed.packSize) ?? { quantity: 0, cogs: 0, fulfillment: 0 };
+      const bucket = packTotals.get(costed.packSize) ?? { quantity: 0, cost: 0 };
       bucket.quantity += line.quantityCosted;
-      bucket.cogs += toMinor(costed.productCogs);
-      bucket.fulfillment += toMinor(costed.fulfillment);
+      bucket.cost += toMinor(costed.operationalCost);
       packTotals.set(costed.packSize, bucket);
     }
   } catch (error) {
@@ -124,31 +122,29 @@ if (packTotals.size > 0 || unmappedQuantity > 0) {
   console.log("\nPack quantities sold");
   console.log("-".repeat(72));
   console.log(
-    `  ${"PACK".padEnd(12)}${"QUANTITY".padStart(10)}${"COGS".padStart(16)}${"FULFILLMENT".padStart(16)}`,
+    `  ${"PACK".padEnd(12)}${"QUANTITY".padStart(10)}${"RATE".padStart(12)}${"OPERATIONAL COST".padStart(20)}`,
   );
 
   let totalQuantity = 0;
-  let totalCogs = 0;
-  let totalFulfil = 0;
+  let totalCost = 0;
 
   for (const size of [10, 20, 50]) {
     const bucket = packTotals.get(size);
     if (!bucket) continue;
     totalQuantity += bucket.quantity;
-    totalCogs += bucket.cogs;
-    totalFulfil += bucket.fulfillment;
+    totalCost += bucket.cost;
+    const rate = bucket.quantity > 0 ? Math.round(bucket.cost / bucket.quantity) : 0;
     console.log(
       `  ${`${size} pack`.padEnd(12)}${String(bucket.quantity).padStart(10)}` +
-        `${formatMoney(fromMinor(bucket.cogs)).padStart(16)}` +
-        `${formatMoney(fromMinor(bucket.fulfillment)).padStart(16)}`,
+        `${formatMoney(fromMinor(rate)).padStart(12)}` +
+        `${formatMoney(fromMinor(bucket.cost)).padStart(20)}`,
     );
   }
 
   console.log("  " + "-".repeat(52));
   console.log(
-    `  ${"TOTAL".padEnd(12)}${String(totalQuantity).padStart(10)}` +
-      `${formatMoney(fromMinor(totalCogs)).padStart(16)}` +
-      `${formatMoney(fromMinor(totalFulfil)).padStart(16)}`,
+    `  ${"TOTAL".padEnd(12)}${String(totalQuantity).padStart(10)}${"".padStart(12)}` +
+      `${formatMoney(fromMinor(totalCost)).padStart(20)}`,
   );
   console.log(
     `\n  Quantities are line-item pack quantities, not individual boxes.`,
@@ -175,8 +171,8 @@ row("Sales reversals", toMinor(summary.salesReversals));
 console.log("-".repeat(72));
 console.log(`  = ${"Shopify NET REVENUE".padEnd(30)} ${formatMoney(summary.netSales).padStart(15)}`);
 console.log();
-row("Product COGS", toMinor(summary.cogs));
-row("Shipping / fulfillment", toMinor(summary.shipping));
+row("Operational cost (packs)", toMinor(summary.cogs));
+if (toMinor(summary.shipping) !== 0) row("Extra fulfillment fees", toMinor(summary.shipping));
 row("Other variable costs (5%)", toMinor(summary.variableExpenses));
 row("Meta Ads spend", toMinor(summary.metaAdSpend));
 row("Google Ads spend", toMinor(summary.googleAdSpend));
@@ -188,9 +184,17 @@ if (toMinor(summary.fixedExpenses) !== 0) {
   row("Fixed expenses", toMinor(summary.fixedExpenses));
   console.log("-".repeat(72));
 }
-console.log(`  = ${"NET PROFIT".padEnd(30)} ${formatMoney(summary.netProfit).padStart(15)}`);
-console.log(`    ${"Net margin".padEnd(30)} ${formatPercent(summary.netMargin).padStart(15)}`);
-console.log(`    ${"Contribution margin".padEnd(30)} ${formatPercent(summary.contributionMargin).padStart(15)}`);
+if (status.costs.mappingComplete) {
+  console.log(`  = ${"NET PROFIT".padEnd(30)} ${formatMoney(summary.netProfit).padStart(15)}`);
+  console.log(`    ${"Net margin".padEnd(30)} ${formatPercent(summary.netMargin).padStart(15)}`);
+  console.log(`    ${"Contribution margin".padEnd(30)} ${formatPercent(summary.contributionMargin).padStart(15)}`);
+} else {
+  console.log(`  = ${"NET PROFIT".padEnd(30)} ${"INCOMPLETE".padStart(15)}`);
+  console.log(
+    `\n  ${status.costs.unmappedLineItems} line item(s) covering ` +
+      `${status.costs.unmappedQuantity} pack(s) are unmapped, so no profit is reported.`,
+  );
+}
 
 // --- Integrity ------------------------------------------------------------
 

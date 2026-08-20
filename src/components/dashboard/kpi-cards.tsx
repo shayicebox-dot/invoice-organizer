@@ -59,6 +59,7 @@ export function NetProfitTile({
   marginLabel,
   contributionLabel,
   note,
+  withheld = false,
   className,
 }: {
   value: string;
@@ -67,6 +68,11 @@ export function NetProfitTile({
   deltaCaption?: string;
   marginLabel: string;
   contributionLabel: string;
+  /**
+   * True when a cost input is missing, so no profit figure is shown at all.
+   * A partial cost total would make this number look better than the truth.
+   */
+  withheld?: boolean;
   /** Shown under the hero figure, e.g. that it blends live and mock inputs. */
   note?: ReactNode;
   className?: string;
@@ -89,16 +95,16 @@ export function NetProfitTile({
 
       <p
         className={cn(
-          "mt-3 text-[48px] font-semibold leading-none tracking-[-0.02em]",
-          isLoss ? "text-negative" : "text-ink",
+          "mt-3 font-semibold leading-none tracking-[-0.02em]",
+          withheld
+            ? "text-[28px] text-amber-700"
+            : cn("text-[48px]", isLoss ? "text-negative" : "text-ink"),
         )}
       >
-        {value}
+        {withheld ? "INCOMPLETE" : value}
       </p>
 
-      <div className="mt-3">
-        <Delta value={delta} caption={deltaCaption} />
-      </div>
+      <div className="mt-3">{withheld ? null : <Delta value={delta} caption={deltaCaption} />}</div>
 
       {note ? <p className="mt-2 text-[11px] leading-4 text-ink-muted">{note}</p> : null}
 
