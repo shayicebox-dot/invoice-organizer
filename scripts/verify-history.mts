@@ -52,6 +52,9 @@ const { costLine } = await import("../src/lib/business-costs/pack-model");
 const { describeIdentity } = await import("../src/lib/business-costs/pack-mapping");
 const { identityOf } = await import("../src/lib/data/live-costs");
 const { orderHistoryWindow, daysBeyondWindow } = await import("../src/lib/shopify/history-window");
+const { getGrantedScopes } = await import("../src/lib/shopify/client");
+const { getMetaConfig } = await import("../src/lib/meta/config");
+const { getGoogleAdsConfig } = await import("../src/lib/google-ads/config");
 
 const DEFAULT_PERIODS: Array<[string, string, string]> = [
   ["June 2026", "2026-06-01", "2026-06-30"],
@@ -82,14 +85,60 @@ console.log("=".repeat(78));
 console.log(`Shop : ${shop.name} · ${shop.domain}  (days bucketed in ${shop.timezone})`);
 console.log("Path : src/lib/data — the dashboard's own code");
 
-const window = await orderHistoryWindow(new Date().toISOString().slice(0, 10));
+// --- Shopify access -------------------------------------------------------
+//
+// Printed before any figure, because it decides which of them mean anything.
+// The scope list is what Shopify returned with the token, not what the app
+// asked for, so it cannot flatter itself.
+
+const today = new Date().toISOString().slice(0, 10);
+let scopes: string[] = [];
+try {
+  scopes = await getGrantedScopes();
+} catch (error) {
+  console.log(`\n✗ Shopify authentication failed: ${error instanceof Error ? error.message : error}\n`);
+  process.exit(1);
+}
+
+const window = await orderHistoryWindow(today);
+const readAllOrders = window.cutoff === null;
+
+console.log();
+console.log("SHOPIFY ACCESS");
+console.log("-".repeat(78));
+console.log(`  Granted scopes    ${scopes.length > 0 ? scopes.join(", ") : "(not reported by Shopify)"}`);
 console.log(
-  "Reach: " +
-    (window.cutoff === null
-      ? "read_all_orders granted — full order history readable"
-      : `orders readable from ${window.cutoff} onward` +
-        (window.unknown ? " (granted scopes not reported; assuming the 60-day limit)" : "")),
+  `  read_all_orders   ${
+    readAllOrders
+      ? "GRANTED"
+      : window.unknown
+        ? "UNCONFIRMED — scopes not reported, assuming the 60-day limit"
+        : "NOT GRANTED"
+  }`,
 );
+console.log(
+  `  Readable range    ${
+    readAllOrders ? `the full order history, through ${today}` : `${window.cutoff} .. ${today}  (last 60 days)`
+  }`,
+);
+if (!readAllOrders) {
+  console.log(
+    "                    Older orders are absent from the API, not empty — any period",
+  );
+  console.log(
+    "                    reaching past the cutoff reports INCOMPLETE rather than a profit.",
+  );
+}
+
+// Ad platforms. A period is only a true P&L when both are live; a missing one
+// understates cost and would overstate profit.
+const metaLive = getMetaConfig() !== null;
+const googleLive = getGoogleAdsConfig() !== null;
+console.log();
+console.log("AD PLATFORMS");
+console.log("-".repeat(78));
+console.log(`  Meta Ads          ${metaLive ? "configured" : "NOT CONFIGURED — spend will read $0"}`);
+console.log(`  Google Ads        ${googleLive ? "configured" : "NOT CONFIGURED — spend will read $0"}`);
 console.log(
   `Cost : ${formatMoney(settings.packModel.costPerTenBoxes)} per ten boxes` +
     (settings.packModel.rules.length > 0
@@ -112,7 +161,10 @@ interface PeriodResult {
   googleSpend: number;
   variableCost: number;
   netProfit: number;
+  /** True only when every input is real: mapping, order history and ad spend. */
   complete: boolean;
+  mappingComplete: boolean;
+  adsComplete: boolean;
   /** Days Shopify would not return orders for. */
   missingDays: number;
 }
@@ -122,6 +174,7 @@ const results: PeriodResult[] = [];
 for (const [label, start, end] of ranges) {
   const missingDays = daysBeyondWindow(window, start, end);
   const { days, status } = await getLiveDailyFinancials("all", start, end);
+  const adsComplete = status.meta.state === "connected" && status.googleAds.state === "connected";
   const summary = summarize(days);
 
   const packs = new Map<number, number>();
@@ -155,7 +208,9 @@ for (const [label, start, end] of ranges) {
     googleSpend: toMinor(summary.googleAdSpend),
     variableCost: toMinor(summary.variableExpenses),
     netProfit: toMinor(summary.netProfit),
-    complete: status.costs.mappingComplete,
+    complete: status.costs.mappingComplete && adsComplete,
+    mappingComplete: status.costs.mappingComplete,
+    adsComplete,
     missingDays,
   });
 }
@@ -200,7 +255,11 @@ console.log(
 console.log("-".repeat(30 + COL * results.length));
 console.log(
   label("NET PROFIT") +
-    results.map((r) => (r.complete ? money(r.netProfit) : cell("INCOMPLETE"))).join(""),
+    results.map((r) => (r.complete ? money(r.netProfit) : cell("—"))).join(""),
+);
+console.log(
+  label("P&L status") +
+    results.map((r) => cell(r.complete ? "COMPLETE" : "INCOMPLETE")).join(""),
 );
 
 // --- What is blocking each period -----------------------------------------
@@ -222,7 +281,16 @@ for (const result of blocked) {
         " Request read_all_orders to report on them.",
     );
   }
-  if (result.unmappedNames.length === 0 && result.missingDays === 0) {
+  if (!result.adsComplete) {
+    console.log(
+      "    Meta or Google Ads spend is not live for this period, so marketing cost is understated.",
+    );
+  }
+  if (
+    result.unmappedNames.length === 0 &&
+    result.missingDays === 0 &&
+    result.adsComplete
+  ) {
     console.log("    Shopify line items could not be read for this period.");
   }
   for (const name of result.unmappedNames) console.log(`    · ${name}`);
