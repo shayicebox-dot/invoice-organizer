@@ -38,6 +38,8 @@ export interface GoogleAdsStatus {
   missing: string[];
   lastSyncedAt: string | null;
   daysReturned: number;
+  /** True when the range came back short. Never treated as "no spend". */
+  truncated: boolean;
 }
 
 export const GOOGLE_ADS_NOT_CONFIGURED: GoogleAdsStatus = {
@@ -50,6 +52,7 @@ export const GOOGLE_ADS_NOT_CONFIGURED: GoogleAdsStatus = {
   missing: [],
   lastSyncedAt: null,
   daysReturned: 0,
+  truncated: false,
 };
 
 interface CacheEntry {
@@ -136,6 +139,7 @@ export async function loadGoogleAdsMetrics(
       missing: [],
       lastSyncedAt: new Date().toISOString(),
       daysReturned: metrics.days.length,
+      truncated: metrics.truncated,
     };
 
     cache.set(key, { fetchedAt: Date.now(), metrics, status });

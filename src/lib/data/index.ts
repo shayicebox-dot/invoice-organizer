@@ -15,7 +15,13 @@ import "server-only";
 
 import { type DailyFinancials, type PeriodSummary, summarize } from "../finance";
 import { type Money, ZERO, add, ratio, sum } from "../money";
-import { type DateRange, today } from "../date-range";
+import {
+  type DateRange,
+  endOfMonth,
+  enumerateMonths,
+  formatMonth,
+  today,
+} from "../date-range";
 import type {
   Connection,
   ISODate,
@@ -55,6 +61,11 @@ import {
   loadGoogleAdsMetrics,
   probeGoogleAdsStatus,
 } from "./live-google-ads";
+import {
+  type Completeness,
+  type LiveSourceStatus,
+  assessCompleteness,
+} from "./completeness";
 import {
   type BusinessCostStatus,
   type HistoricalMapping,
@@ -464,12 +475,8 @@ export async function getExpenseBreakdown(
 // ---------------------------------------------------------------------------
 
 /** The live-source state behind a set of daily records. */
-export interface LiveSourceStatus {
-  shopify: ShopifyStatus;
-  meta: MetaStatus;
-  googleAds: GoogleAdsStatus;
-  costs: BusinessCostStatus;
-}
+export type { LiveSourceStatus, Completeness, CompletenessGap } from "./completeness";
+export { assessCompleteness } from "./completeness";
 
 /**
  * Daily records with every available live source overlaid.
@@ -519,6 +526,8 @@ export interface LiveRangeReport extends RangeReport {
   meta: MetaStatus;
   googleAds: GoogleAdsStatus;
   costs: BusinessCostStatus;
+  /** Whether a profit figure may be shown at all, and why not when it may not. */
+  completeness: Completeness;
 }
 
 /**
@@ -545,6 +554,7 @@ export async function getLiveRangeReport(
     meta: current.status.meta,
     googleAds: current.status.googleAds,
     costs: current.status.costs,
+    completeness: assessCompleteness(current.status),
   };
 }
 
@@ -574,6 +584,89 @@ export async function getLiveTrailingDays(
 
   const costs = await applyBusinessCosts(result, from, to);
   return costs.days;
+}
+
+/** One calendar month of the year view. */
+export interface MonthlyPeriod {
+  /** `YYYY-MM`. */
+  month: string;
+  label: string;
+  start: ISODate;
+  end: ISODate;
+  summary: PeriodSummary;
+}
+
+export interface YearReport {
+  year: number;
+  start: ISODate;
+  end: ISODate;
+  /** Every month the year touches, including ones with no trading. */
+  months: MonthlyPeriod[];
+  /** The whole year. Equal to the sum of the months by construction. */
+  summary: PeriodSummary;
+  days: DailyFinancials[];
+  shopify: ShopifyStatus;
+  meta: MetaStatus;
+  googleAds: GoogleAdsStatus;
+  costs: BusinessCostStatus;
+  completeness: Completeness;
+}
+
+/**
+ * A whole year, with a monthly breakdown.
+ *
+ * Deliberately one fetch for the entire range rather than twelve monthly ones.
+ * Beyond being twelve times cheaper, it makes the reconciliation structural:
+ * the months are buckets of the same daily records the year total sums, so
+ * they cannot disagree. Twelve separate fetches could each land on a different
+ * cache generation and quietly fail to add up.
+ */
+export async function getLiveYearReport(
+  scope: StoreScope,
+  year: number,
+  endOn: ISODate = today(),
+): Promise<YearReport> {
+  const start = `${year}-01-01`;
+  // Never report past today: a future month has no data, only an empty row.
+  const end = endOn < `${year}-12-31` ? endOn : `${year}-12-31`;
+
+  const { days, status } = await getLiveDailyFinancials(scope, start, end);
+  const currency = days[0]?.currency ?? "USD";
+
+  const byMonth = new Map<string, DailyFinancials[]>();
+  for (const day of days) {
+    const key = day.date.slice(0, 7);
+    const bucket = byMonth.get(key);
+    if (bucket) bucket.push(day);
+    else byMonth.set(key, [day]);
+  }
+
+  const months: MonthlyPeriod[] = enumerateMonths(start, end).map((month) => {
+    const monthDays = byMonth.get(month) ?? [];
+    const monthStart = `${month}-01`;
+    const monthEnd = endOfMonth(monthStart);
+    return {
+      month,
+      label: formatMonth(month),
+      start: monthStart,
+      end: monthEnd < end ? monthEnd : end,
+      summary: summarize(monthDays, currency),
+    };
+  });
+
+  return {
+    year,
+    start,
+    end,
+    months,
+    summary: summarize(days, currency),
+    days,
+    shopify: status.shopify,
+    meta: status.meta,
+    googleAds: status.googleAds,
+    costs: status.costs,
+    completeness: assessCompleteness(status),
+  };
 }
 
 /**

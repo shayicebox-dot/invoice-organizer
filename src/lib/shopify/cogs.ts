@@ -34,12 +34,14 @@ import "server-only";
 import { type CurrencyCode, type Money, ZERO, add, multiply, parseDecimalToMinor, sum } from "../money";
 import type { ISODate } from "../types";
 import { ShopifyError, shopifyGraphQL } from "./client";
+import { maxPagesFor } from "./limits";
 import type { ShopInfo } from "./shop";
 
 const PAGE_SIZE = 50;
 const LINE_ITEMS_PER_ORDER = 100;
 const REFUNDS_PER_ORDER = 20;
-const MAX_PAGES = 40;
+/** Runaway-loop backstop only — see `limits.ts`. Paging runs to exhaustion. */
+const MAX_PAGES = maxPagesFor(PAGE_SIZE);
 
 /** Restock types that put the unit back into sellable inventory. */
 const RESTOCKED_TYPES = new Set(["RETURN", "CANCEL", "LEGACY_RESTOCK"]);

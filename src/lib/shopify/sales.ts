@@ -44,12 +44,13 @@ import { type CurrencyCode, type Money, ZERO, add, subtract } from "../money";
 import type { ISODate } from "../types";
 import { ShopifyError, shopifyGraphQL } from "./client";
 import { getShopifyConfig } from "./config";
+import { maxPagesFor } from "./limits";
 import { type MoneyBag, type ShopInfo, bagToMoney, dateInTimezone, shiftIso } from "./shop";
 
-/** Orders per page in the cheap pass. */
+/** Orders per page in the cheap pass. Bounded by the Admin API's query cost. */
 const ORDER_PAGE_SIZE = 50;
-/** Hard stop, so a wide range can never loop indefinitely. */
-const MAX_ORDER_PAGES = 80;
+/** Runaway-loop backstop only — see `limits.ts`. Paging runs to exhaustion. */
+const MAX_ORDER_PAGES = maxPagesFor(ORDER_PAGE_SIZE);
 
 /**
  * Ledger-pass batching. The Admin API charges a query the product of its nested
@@ -59,7 +60,7 @@ const MAX_ORDER_PAGES = 80;
 const LEDGER_BATCH_SIZE = 2;
 const AGREEMENTS_PER_ORDER = 6;
 const SALES_PER_AGREEMENT = 11;
-const MAX_LEDGER_BATCHES = 400;
+const MAX_LEDGER_BATCHES = maxPagesFor(LEDGER_BATCH_SIZE);
 
 const ORDER_TOTALS_QUERY = `query EcomPlOrderTotals($first: Int!, $after: String, $query: String) {
   orders(first: $first, after: $after, query: $query, sortKey: CREATED_AT) {

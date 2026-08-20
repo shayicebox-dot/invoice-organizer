@@ -14,6 +14,8 @@ export const DATE_RANGE_PRESETS = [
   "7d",
   "30d",
   "this-month",
+  "ytd",
+  "12m",
   "custom",
 ] as const;
 
@@ -24,7 +26,9 @@ export const PRESET_LABELS: Record<DateRangePreset, string> = {
   yesterday: "Yesterday",
   "7d": "7 Days",
   "30d": "30 Days",
-  "this-month": "This Month",
+  "this-month": "Month to Date",
+  ytd: "Year to Date",
+  "12m": "Last 12 Months",
   custom: "Custom",
 };
 
@@ -78,6 +82,41 @@ export function startOfMonth(date: ISODate): ISODate {
   return `${date.slice(0, 7)}-01`;
 }
 
+export function endOfMonth(date: ISODate): ISODate {
+  return `${date.slice(0, 7)}-${String(daysInMonth(date)).padStart(2, "0")}`;
+}
+
+export function startOfYear(date: ISODate): ISODate {
+  return `${date.slice(0, 4)}-01-01`;
+}
+
+/** Add whole months, clamping to the last day when the target month is shorter. */
+export function addMonths(date: ISODate, months: number): ISODate {
+  const parsed = parseISODate(date);
+  const day = parsed.getUTCDate();
+  const target = new Date(
+    Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + months, 1),
+  );
+  const lastDay = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return toISODate(target);
+}
+
+/** Every calendar month the range touches, as `YYYY-MM`. */
+export function enumerateMonths(start: ISODate, end: ISODate): string[] {
+  const months: string[] = [];
+  for (
+    let cursor = startOfMonth(start);
+    cursor <= end;
+    cursor = addMonths(cursor, 1)
+  ) {
+    months.push(cursor.slice(0, 7));
+  }
+  return months;
+}
+
 export function daysInMonth(date: ISODate): number {
   const parsed = parseISODate(date);
   return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, 0)).getUTCDate();
@@ -118,6 +157,12 @@ export function resolveDateRange(
       return range("7d", addDays(anchor, -6), anchor);
     case "this-month":
       return range("this-month", startOfMonth(anchor), anchor);
+    case "ytd":
+      return range("ytd", startOfYear(anchor), anchor);
+    case "12m":
+      // Inclusive of today, so the window is exactly twelve months long rather
+      // than twelve months plus a day.
+      return range("12m", addDays(addMonths(anchor, -12), 1), anchor);
     case "custom": {
       if (from && to && isISODate(from) && isISODate(to) && from <= to) {
         return range("custom", from, to);
@@ -187,5 +232,17 @@ export function describeRange(preset: DateRangePreset, start: ISODate, end: ISOD
 export function describeComparison(range: DateRange): string {
   const length = daysBetween(range.start, range.end);
   if (length === 1) return "vs previous day";
+  if (length >= 360) return "vs previous 12 months";
   return `vs previous ${length} days`;
+}
+
+/** A month key formatted for a table row, e.g. "Jan 2026". */
+const MONTH_YEAR = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+export function formatMonth(month: string): string {
+  return MONTH_YEAR.format(parseISODate(`${month}-01`));
 }

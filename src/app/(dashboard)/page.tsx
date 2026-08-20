@@ -24,7 +24,7 @@ import { formatMoney, formatNumber, formatPercent, toMinor } from "@/lib/money";
 import { daysBetween, describeComparison, describeRange, today } from "@/lib/date-range";
 import { resolveViewParams } from "@/lib/view-params";
 import type { CostSource } from "@/lib/business-costs/types";
-import type { BusinessCostStatus } from "@/lib/data";
+import type { BusinessCostStatus, Completeness } from "@/lib/data";
 
 /** Below this many days the charts widen to a trailing window so they stay readable. */
 const MIN_CHART_DAYS = 7;
@@ -93,20 +93,20 @@ export default async function OverviewPage(props: PageProps<"/">) {
 
       <DataSourceBanner shopify={shopify} meta={meta} googleAds={googleAds} costs={costs} />
 
-      <MappingGate costs={costs} />
+      <MappingGate costs={costs} completeness={report.completeness} />
 
       {/* KPI row. Net Profit is the hero figure — one per view. */}
       <div className="grid gap-3 lg:grid-cols-12">
         <NetProfitTile
           className="lg:col-span-4"
-          withheld={!costs.mappingComplete}
+          withheld={!report.completeness.complete}
           value={formatMoney(summary.netProfit, summary.currency)}
           isLoss={summary.netProfit < 0}
           delta={percentChange(summary.netProfit, previous.netProfit)}
           deltaCaption={comparison}
-          marginLabel={costs.mappingComplete ? formatPercent(summary.netMargin) : "—"}
+          marginLabel={report.completeness.complete ? formatPercent(summary.netMargin) : "—"}
           contributionLabel={
-            costs.mappingComplete
+            report.completeness.complete
               ? formatMoney(summary.contributionProfit, summary.currency)
               : "—"
           }
@@ -115,6 +115,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             metaSource === "live",
             googleSource === "live",
             costs,
+            report.completeness,
           )}
         />
 
@@ -260,6 +261,7 @@ function netProfitNote(
   metaLive: boolean,
   googleLive: boolean,
   costs: BusinessCostStatus,
+  completeness: Completeness,
 ): string {
   const real: string[] = [];
   if (revenueLive) real.push("Shopify revenue");
@@ -281,8 +283,9 @@ function netProfitNote(
     if (source === "manual" || source === "manual_real" || source === "live") real.push(label);
   }
 
-  if (!costs.mappingComplete) {
-    return `${costs.unmappedLineItems} order line(s) are not mapped to a pack, so profit is withheld.`;
+  if (!completeness.complete) {
+    const [first] = completeness.reasons;
+    return first ?? "An input is missing, so profit is withheld.";
   }
 
   if (real.length === 0) return "Every input is mock data.";

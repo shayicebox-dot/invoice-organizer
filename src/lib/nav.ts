@@ -2,6 +2,7 @@
 export const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: "overview" },
   { href: "/profit-and-loss", label: "Profit & Loss", icon: "profit" },
+  { href: "/year", label: "Year Summary", icon: "expenses" },
   { href: "/marketing", label: "Marketing", icon: "marketing" },
   { href: "/orders", label: "Orders", icon: "orders" },
   { href: "/products", label: "Products", icon: "products" },

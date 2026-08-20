@@ -633,6 +633,7 @@ npm run test       # node --test
 npm run check      # lint + typecheck + test + build, in that order
 
 npm run verify:revenue   # Shopify revenue against Shopify Analytics
+npm run verify:year      # a full year: pagination, mapping and month/year reconciliation
 npm run verify:history   # historical P&L across several past periods
 npm run verify:packs     # pack mapping against the real catalog
 npm run verify:cogs      # per-SKU cost of goods sold
@@ -728,6 +729,7 @@ tooltip shows is also present in the Daily P&L table below it.
 | `/marketing` | Spend by channel, blended ROAS, MER, cost per order, attribution caveats |
 | `/orders` | Recent orders with per-order contribution after product, shipping and fees |
 | `/products` | Units, revenue, COGS and gross margin per SKU |
+| `/year` | A whole year: totals plus a month-by-month breakdown |
 | `/expenses` | Variable and fixed expenses, and how allocation works |
 | `/business-costs` | Pack cost rules, processing, Klaviyo and other configured costs |
 | `/historical-mapping` | Every product identity seen on an order, and the pack size it costs at |
@@ -736,7 +738,41 @@ tooltip shows is also present in the Daily P&L table below it.
 | `/settings` | Organization, profit definitions, money model, allocation method |
 
 Every route accepts `?store=<id|all>` and
-`?range=today|yesterday|7d|30d|this-month|custom&from=YYYY-MM-DD&to=YYYY-MM-DD`.
+`?range=today|yesterday|7d|30d|this-month|ytd|12m|custom&from=YYYY-MM-DD&to=YYYY-MM-DD`.
+`/year` also accepts `?year=YYYY`.
+
+### Long historical ranges
+
+Every reader pages until the provider says there is nothing left. The bounds in
+`src/lib/shopify/limits.ts` are runaway-loop backstops set far above any real
+volume, not data caps — and when one binds, the reader sets `truncated` and the
+P&L reports INCOMPLETE rather than handing back a short answer.
+
+That last part is the whole point. A wide window does not fail loudly; it comes
+back **short**, and a short range reads exactly like a quiet trading period.
+Google Ads was the clearest case: its cursor loop stopped at a page bound and
+returned whatever it had, with no signal at all. It now reports truncation, and
+truncation withholds profit.
+
+Windows that have already closed are cached for ten minutes rather than one,
+since only a late edit or refund can still move them. A range including today
+keeps the short cache.
+
+#### Four inputs, one gate
+
+`assessCompleteness` (`src/lib/data/completeness.ts`) is the single place that
+decides whether a profit figure may be shown. All four must hold:
+
+| Input | Fails when |
+|---|---|
+| Shopify range | disconnected, paging truncated, or part of the range beyond `read_all_orders` reach |
+| Pack mapping | any order line has no box quantity |
+| Meta Ads | not connected, or a short range |
+| Google Ads | not connected, or a short range |
+
+An **unconfigured** ad platform counts as a failure, not a zero. Either way its
+spend is missing, marketing cost is understated, and profit comes out too high —
+which is the kind of wrong that gets believed.
 
 ---
 

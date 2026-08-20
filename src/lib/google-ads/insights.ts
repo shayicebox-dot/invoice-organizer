@@ -73,6 +73,8 @@ export interface GoogleAdsRangeMetrics {
   totalClicks: number;
   totalConversions: number;
   totalConversionValue: Money;
+  /** True when the row cursor hit its backstop, so the range is short. */
+  truncated: boolean;
 }
 
 interface CustomerRow {
@@ -170,7 +172,7 @@ export async function fetchGoogleAdsAccount(): Promise<GoogleAdsAccount> {
   const config = getGoogleAdsConfig();
   if (!config) throw new GoogleAdsError("Google Ads is not configured.", "config");
 
-  const rows = await googleAdsSearch<CustomerRow>(
+  const { rows } = await googleAdsSearch<CustomerRow>(
     "SELECT customer.id, customer.descriptive_name, customer.currency_code, " +
       "customer.time_zone, customer.status FROM customer",
   );
@@ -209,7 +211,7 @@ export async function fetchGoogleAdsDailyMetrics(
     );
   }
 
-  const rows = await googleAdsSearch<MetricsRow>(
+  const { rows, truncated } = await googleAdsSearch<MetricsRow>(
     "SELECT segments.date, metrics.cost_micros, metrics.impressions, metrics.clicks, " +
       "metrics.conversions, metrics.conversions_value " +
       `FROM customer WHERE segments.date BETWEEN '${start}' AND '${end}'`,
@@ -281,6 +283,7 @@ export async function fetchGoogleAdsDailyMetrics(
     totalClicks: buckets.reduce((acc, bucket) => acc + bucket.clicks, 0),
     totalConversions: buckets.reduce((acc, bucket) => acc + bucket.conversions, 0),
     totalConversionValue: valueToMinor(totalConversionValueRaw),
+    truncated,
   };
 }
 

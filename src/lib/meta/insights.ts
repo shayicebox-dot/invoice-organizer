@@ -19,7 +19,12 @@ import { type MetaConfig, adAccountNode, getMetaConfig } from "./config";
 /** Rows per page. A 31-day range fits in one; the default page size is 25. */
 const PAGE_LIMIT = 500;
 /** Hard stop so pagination can never loop indefinitely. */
-const MAX_PAGES = 10;
+/**
+ * Runaway-loop backstop only. At `time_increment=1` Meta returns one row per
+ * day, so a page of 500 already covers well over a year; this allows decades
+ * before it would ever bind, and sets `truncated` if it somehow did.
+ */
+const MAX_PAGES = 40;
 
 const SUPPORTED_CURRENCIES: CurrencyCode[] = ["USD", "EUR", "GBP", "ILS"];
 

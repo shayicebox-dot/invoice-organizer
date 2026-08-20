@@ -15,7 +15,8 @@
     "verify:packs": "tsx --conditions=react-server scripts/verify-packs.mts",
     "verify:pl": "tsx --conditions=react-server scripts/verify-pl.mts",
     "verify:revenue": "tsx --conditions=react-server scripts/verify-revenue.mts",
-    "verify:history": "tsx --conditions=react-server scripts/verify-history.mts"
+    "verify:history": "tsx --conditions=react-server scripts/verify-history.mts",
+    "verify:year": "tsx --conditions=react-server scripts/verify-year.mts"
   },
   "dependencies": {
     "google-auth-library": "^11.0.2",

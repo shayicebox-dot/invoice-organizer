@@ -65,7 +65,18 @@ interface CacheEntry {
  * Short-lived cache. A dashboard render touches the same window several times
  * (KPIs, charts, table); without this each render would re-query Shopify.
  */
-const TTL_MS = 60_000;
+/**
+ * How long a window may be cached.
+ *
+ * A range that ended in the past barely moves — only a late edit or refund
+ * touches it — while a range including today changes with every order. Caching
+ * closed periods for longer is what makes a multi-month range usable without
+ * risking a stale figure for the day in progress.
+ */
+function cacheTtlMs(end: ISODate): number {
+  return end >= new Date().toISOString().slice(0, 10) ? 60_000 : 600_000;
+}
+
 const cache = new Map<string, CacheEntry>();
 
 /** Cached shop metadata — timezone and currency change very rarely. */
@@ -100,7 +111,7 @@ export async function loadShopifySales(
 
   const key = `${start}:${end}`;
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.fetchedAt < TTL_MS) {
+  if (cached && Date.now() - cached.fetchedAt < cacheTtlMs(end)) {
     return { days: cached.days, status: cached.status };
   }
 

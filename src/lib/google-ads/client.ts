@@ -25,7 +25,11 @@ import { type GoogleAdsConfig, getGoogleAdsConfig } from "./config";
 const API_HOST = "https://googleads.googleapis.com";
 const SCOPE = "https://www.googleapis.com/auth/adwords";
 const REQUEST_TIMEOUT_MS = 20_000;
-/** Guards against an unbounded cursor loop. */
+/**
+ * Runaway-loop backstop only. Google returns up to 10,000 rows per page, so a
+ * year of daily rows fits in one; this binds only if the cursor misbehaves, and
+ * the caller is told when it does rather than being handed a short result.
+ */
 const MAX_PAGES = 50;
 
 export class GoogleAdsError extends Error {
@@ -173,7 +177,9 @@ interface SearchResponse<T> {
  * Run a GAQL query against the configured customer, following `nextPageToken`
  * so a wide date range is never silently truncated.
  */
-export async function googleAdsSearch<T>(query: string): Promise<T[]> {
+export async function googleAdsSearch<T>(
+  query: string,
+): Promise<{ rows: T[]; truncated: boolean }> {
   const config = getGoogleAdsConfig();
   if (!config) throw new GoogleAdsError("Google Ads is not configured.", "config");
 
@@ -221,7 +227,10 @@ export async function googleAdsSearch<T>(query: string): Promise<T[]> {
     pages += 1;
   } while (pageToken && pages < MAX_PAGES);
 
-  return results;
+  // A cursor still outstanding means the backstop bound, not that Google ran
+  // out of rows. Saying so is the difference between a short answer and a
+  // wrong one.
+  return { rows: results, truncated: Boolean(pageToken) };
 }
 
 /** Test hook — drops the cached JWT so the next call re-authenticates. */

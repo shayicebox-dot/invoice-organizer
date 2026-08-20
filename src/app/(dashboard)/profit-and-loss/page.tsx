@@ -46,12 +46,13 @@ function buildStatement(
   shopifyLive: boolean,
   metaLive: boolean,
   googleLive: boolean,
+  complete: boolean,
 ): StatementLine[] {
   const revenueSource = shopifyLive ? ("live" as const) : ("mock" as const);
   // Every cost line above a profit line has to be complete for that profit to
   // mean anything. While mapping is open, the profit rows are withheld rather
   // than shown understated.
-  const withheld = !costs.mappingComplete;
+  const withheld = !complete;
   const packMode = costs.sources.shipping === "not_configured" && summary.shipping === 0;
 
   return [
@@ -97,9 +98,9 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
   const metaLive = report.meta.state === "connected";
   const googleLive = report.googleAds.state === "connected";
 
-  const mappingComplete = report.costs.mappingComplete;
-  const statement = buildStatement(report.summary, costTag, report.costs, shopifyLive, metaLive, googleLive);
-  const previousStatement = buildStatement(report.previous, costTag, report.costs, shopifyLive, metaLive, googleLive);
+  const mappingComplete = report.completeness.complete;
+  const statement = buildStatement(report.summary, costTag, report.costs, shopifyLive, metaLive, googleLive, mappingComplete);
+  const previousStatement = buildStatement(report.previous, costTag, report.costs, shopifyLive, metaLive, googleLive, mappingComplete);
   const comparison = describeComparison(view.range);
 
   const perStore =
@@ -121,7 +122,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
         description={`${view.scopeLabel} · ${view.range.label}. Net sales down to operating profit, with every line as a share of net sales.`}
       />
 
-      <MappingGate costs={report.costs} />
+      <MappingGate costs={report.costs} completeness={report.completeness} />
 
       <div className="grid gap-3 xl:grid-cols-3">
         <Card className="xl:col-span-2">

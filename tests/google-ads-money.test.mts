@@ -141,6 +141,7 @@ describe("applyGoogleAdsSpend", () => {
     totalImpressions: 1,
     totalClicks: 1,
     totalConversions: 0,
+    truncated: false,
     totalConversionValue: fromMinor(0),
   });
 
@@ -221,7 +222,8 @@ describe("end-to-end: the verified range through summarize()", () => {
       totalImpressions: 0,
       totalClicks: 0,
       totalConversions: 0,
-      totalConversionValue: fromMinor(0),
+      truncated: false,
+    totalConversionValue: fromMinor(0),
     };
 
     const mockDays: DailyFinancials[] = dates.map((date) => ({
