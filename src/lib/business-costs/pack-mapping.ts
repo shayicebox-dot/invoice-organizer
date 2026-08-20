@@ -18,23 +18,56 @@
  *
  * ## Refusing to guess
  *
- * Step 3 is deliberately narrow. Two rules disqualify a line from text
- * matching entirely, and send it to the merchant instead:
+ * Step 3 is deliberately narrow. A number only reads as a box count when the
+ * text says so — next to a pack or box word, or as a whole segment of a SKU
+ * against a size the business is known to sell. `Summer 2050 Collection` is not
+ * a 2050-pack, and `WHITE-US1` is not a 1-pack.
+ *
+ * Two rules then disqualify a line from text matching entirely and send it to
+ * the merchant instead:
  *
  *   - a **partial-quantity word** — "half of 50-pack" is not a 50-pack, and
  *     costing it as one overstates cost by a factor of two;
- *   - a **pack size the business does not sell** — "30-pack" proves the text
- *     uses pack wording, so reading some other number out of it would be
- *     inventing an answer.
+ *   - a **box count that is not a whole multiple of ten** — the cost model is
+ *     priced per ten boxes, so "25 pack" has no cost the model can derive.
  *
  * An unmapped line contributes no cost, is reported by name, and blocks the
  * profit figures entirely. That is the point: a P&L that says it is incomplete
  * is worth more than one that is quietly wrong.
  */
 
-/** Pack sizes the business sells. */
-export const PACK_SIZES = [10, 20, 50] as const;
-export type PackSize = (typeof PACK_SIZES)[number];
+/**
+ * Bundle sizes the business sells today, in boxes.
+ *
+ * This list is for the UI and for the conservative SKU rule below. It is not a
+ * closed set: any whole multiple of ten is costable, because the cost model is
+ * priced per ten boxes. A 40-pack that shows up tomorrow costs correctly
+ * without a code change.
+ */
+export const PACK_SIZES = [10, 20, 30, 50, 70] as const;
+
+/** A number of boxes on one line item. Always a whole multiple of ten. */
+export type PackSize = number;
+
+/** Boxes per unit of the cost model. Cost is quoted per ten boxes. */
+export const BOXES_PER_COST_UNIT = 10;
+
+/**
+ * Upper bound on a box count read out of text. Nothing near it is a real
+ * order; the bound exists so a stray four-digit number can never become a
+ * five-figure cost line.
+ */
+export const MAX_PACK_BOXES = 500;
+
+/** Whether a number is a box count this cost model can price. */
+export function isPackQuantity(value: number): boolean {
+  return (
+    Number.isInteger(value) &&
+    value > 0 &&
+    value <= MAX_PACK_BOXES &&
+    value % BOXES_PER_COST_UNIT === 0
+  );
+}
 
 /** What an identity resolves to. `exclude` means "never costed", on purpose. */
 export type PackAssignment = PackSize | "exclude";
@@ -164,11 +197,12 @@ export function describeIdentity(line: LineIdentity): string {
 
 // --- Text rules ------------------------------------------------------------
 
-/** A pack size stated next to a pack word, at any size. */
-const ANY_PACK_PHRASE = /(?:^|[^0-9a-z])(\d{1,4})\s*[-–—_ ]?\s*(?:pack|pk|pcs|pieces|count|ct)\b/gi;
-const ANY_PACK_OF_PHRASE = /\bpack\s*of\s*(\d{1,4})(?![0-9])/gi;
-/** A SKU segment that is exactly a pack size, e.g. KB-20-BLUE. */
-const SKU_SEGMENT = /(?:^|[^0-9])(10|20|50)(?![0-9])/g;
+/** A box count stated next to a pack or box word, at any size. */
+const ANY_PACK_PHRASE =
+  /(?:^|[^0-9a-z])(\d{1,4})\s*[-–—_ ]?\s*(?:pack|packs|pk|box|boxes|pcs|pieces|count|ct)\b/gi;
+const ANY_PACK_OF_PHRASE = /\b(?:pack|box|boxes)\s*of\s*(\d{1,4})(?![0-9])/gi;
+/** A whole numeric segment of a SKU, e.g. the 20 in KB-20-BLUE. */
+const SKU_SEGMENT = /(?:^|[^0-9])(\d{1,4})(?![0-9])/g;
 /** Words that mean "not a whole pack". Their presence blocks text matching. */
 const PARTIAL_WORDS = /\b(half|halves|quarter|third|part|partial|split|sample|single|piece)\b/i;
 
@@ -177,12 +211,19 @@ function collect(text: string, pattern: RegExp): number[] {
   return [...text.matchAll(pattern)].map((match) => Number(match[1]));
 }
 
+/**
+ * Box counts stated explicitly in a piece of text.
+ *
+ * A number that is stated as a pack but is not a whole multiple of ten is
+ * `unsupported` rather than ignored: the text plainly claims to be a pack, so
+ * falling through to some other reading of it would be a guess.
+ */
 function packSizesIn(text: string): { sizes: Set<PackSize>; unsupported: boolean } {
   const numbers = [...collect(text, ANY_PACK_PHRASE), ...collect(text, ANY_PACK_OF_PHRASE)];
   const sizes = new Set<PackSize>();
   let unsupported = false;
   for (const number of numbers) {
-    if ((PACK_SIZES as readonly number[]).includes(number)) sizes.add(number as PackSize);
+    if (isPackQuantity(number)) sizes.add(number);
     else unsupported = true;
   }
   return { sizes, unsupported };
@@ -258,12 +299,15 @@ export function matchPack(entries: readonly PackMappingEntry[], line: LineIdenti
     }
   }
 
-  // Last resort: a bare pack-size segment in the SKU, e.g. KB-20-BLUE.
+  // Last resort: a bare numeric segment in the SKU, e.g. KB-20-BLUE.
+  //
+  // Deliberately stricter than the text rules above. A SKU states nothing about
+  // what its digits mean, so only a size the business is known to sell counts;
+  // every other number in it is ignored rather than read as a box count. That
+  // is what keeps WHITE-US1 from becoming a 1-pack and KB-2024-X a 2024-pack.
   if (sku !== "") {
     const segment = new Set(
-      collect(sku, SKU_SEGMENT).filter((n): n is PackSize =>
-        (PACK_SIZES as readonly number[]).includes(n),
-      ),
+      collect(sku, SKU_SEGMENT).filter((n) => (PACK_SIZES as readonly number[]).includes(n)),
     );
     if (segment.size === 1) {
       return { packSize: [...segment][0], excluded: false, confidence: "sku", evidence: sku };

@@ -1,15 +1,19 @@
 /**
  * The Kicks Box pack cost model.
  *
- * One number per pack size, covering everything it takes to put a pack in a
- * customer's hands:
+ * One rate, stated once: **$45 per ten boxes**. Every bundle is built from
+ * tens, so every bundle costs from the same rate.
  *
- *   10 Pack — $45      20 Pack — $90      50 Pack — $225
+ *   10 boxes — $45     20 — $90     30 — $135     50 — $225     70 — $315
  *
- * Product cost, shipping, storage and pick & pack are all inside those figures.
+ * A 30 is a 20 plus a 10 and a 70 is a 50 plus a 20, which is why they need no
+ * rule of their own: the rate already prices them, and a bundle size introduced
+ * tomorrow prices correctly without a code change.
+ *
+ * Product cost, shipping, storage and pick & pack are all inside that rate.
  * There is no separate COGS and fulfillment split to reconcile, and nothing is
  * read from Shopify's cost per item or from inventory valuation — the business
- * knows what a pack costs, and that is the number the P&L uses.
+ * knows what a box costs, and that is the number the P&L uses.
  *
  * Which pack a line item is comes from `pack-mapping.ts`, which resolves
  * against durable historical identifiers rather than the catalog as it stands
@@ -19,7 +23,7 @@
 
 import { type Money, ZERO, fromMajor, multiply } from "../money";
 import type { ISODate } from "../types";
-import { builtinMappings, matchPack } from "./pack-mapping";
+import { BOXES_PER_COST_UNIT, builtinMappings, isPackQuantity, matchPack } from "./pack-mapping";
 import type {
   LineIdentity,
   MappingConfidence,
@@ -29,22 +33,37 @@ import type {
 import { effectiveRecord } from "./proration";
 import type { EffectiveWindow } from "./types";
 
-export { PACK_SIZES } from "./pack-mapping";
+export { BOXES_PER_COST_UNIT, isPackQuantity } from "./pack-mapping";
+import { PACK_SIZES } from "./pack-mapping";
+export { PACK_SIZES };
 export type { PackSize, PackAssignment, PackMappingEntry, LineIdentity } from "./pack-mapping";
 
+/**
+ * An exception to the per-ten rate, for one bundle size over one window.
+ *
+ * Nothing needs one today. It exists so a size whose cost genuinely diverges —
+ * a promotional bundle, a supplier change on one SKU — can be priced without
+ * distorting the rate that every other size derives from.
+ */
 export interface PackRule extends EffectiveWindow {
   id: string;
   packSize: PackSize;
   label: string;
   /**
-   * Total operational cost of one pack: product, shipping, storage, pick and
+   * Total operational cost of one bundle: product, shipping, storage, pick and
    * pack. A single figure, because that is how the business buys and ships.
    */
   operationalCost: Money;
 }
 
 export interface PackCostModel {
+  /** Exceptions. Consulted before the rate below; normally empty. */
   rules: PackRule[];
+  /**
+   * The rate everything derives from: what ten boxes cost to buy, store, pick,
+   * pack and ship. A bundle of N boxes costs `N / 10` times this.
+   */
+  costPerTenBoxes: Money;
   /** The durable historical mapping table, manual entries and built-ins. */
   mappings: PackMappingEntry[];
   /**
@@ -57,28 +76,44 @@ export interface PackCostModel {
 
 /** The real Kicks Box cost model. */
 export function defaultPackModel(): PackCostModel {
-  const rule = (packSize: PackSize, operationalCost: number): PackRule => ({
-    id: `pack_${packSize}`,
-    packSize,
-    label: `Pack of ${packSize}`,
-    operationalCost: fromMajor(operationalCost),
-    effectiveFrom: "2000-01-01",
-    effectiveTo: null,
-  });
-
   return {
-    rules: [rule(10, 45), rule(20, 90), rule(50, 225)],
+    rules: [],
+    costPerTenBoxes: fromMajor(45),
     mappings: builtinMappings(),
     variableRateOfNetRevenue: 0.05,
   };
 }
 
-/** The rule in force for a pack size on a date. */
+/**
+ * What one bundle of `packSize` boxes costs on a date.
+ *
+ * An explicit exception wins; otherwise the cost is derived from the per-ten
+ * rate. A size that is not a whole multiple of ten has no derivable cost and
+ * returns `null` rather than being rounded into one.
+ */
 export function ruleFor(model: PackCostModel, packSize: PackSize, date: ISODate): PackRule | null {
-  return effectiveRecord(
+  const exception = effectiveRecord(
     model.rules.filter((rule) => rule.packSize === packSize),
     date,
   );
+  if (exception) return exception;
+
+  if (!isPackQuantity(packSize)) return null;
+
+  return {
+    id: `derived_${packSize}`,
+    packSize,
+    label: `${packSize} boxes`,
+    operationalCost: multiply(model.costPerTenBoxes, packSize / BOXES_PER_COST_UNIT),
+    effectiveFrom: "2000-01-01",
+    effectiveTo: null,
+  };
+}
+
+/** The bundle sizes to show in a settings table, plus any size with an exception. */
+export function pricedPackSizes(model: PackCostModel): PackSize[] {
+  const sizes = new Set<PackSize>([...PACK_SIZES, ...model.rules.map((rule) => rule.packSize)]);
+  return [...sizes].sort((a, b) => a - b);
 }
 
 export interface PackCostResult {

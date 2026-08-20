@@ -10,6 +10,7 @@ import { getHistoricalMapping } from "@/lib/data";
 import { formatDateShort } from "@/lib/date-range";
 import { formatNumber } from "@/lib/money";
 import type { ProductIdentityRow, IdentityStatus } from "@/lib/business-costs/inventory";
+import { PACK_SIZES } from "@/lib/business-costs/pack-mapping";
 import type { MappingKey } from "@/lib/business-costs/pack-mapping";
 
 export const metadata: Metadata = { title: "Historical Product Mapping" };
@@ -132,7 +133,7 @@ export default async function HistoricalMappingPage(props: PageProps<"/historica
                 <Th>First seen</Th>
                 <Th>Last seen</Th>
                 <Th align="right">Qty sold</Th>
-                <Th align="right">Pack size</Th>
+                <Th align="right">Boxes</Th>
                 <Th>Status</Th>
                 <Th>Assign</Th>
               </tr>
@@ -176,9 +177,9 @@ export default async function HistoricalMappingPage(props: PageProps<"/historica
                             name="note"
                             value={`Assigned from Historical Product Mapping (${KEY_LABELS[target.key]})`}
                           />
-                          <AssignButton value="10" />
-                          <AssignButton value="20" />
-                          <AssignButton value="50" />
+                          {PACK_SIZES.map((size) => (
+                            <AssignButton key={size} value={String(size)} />
+                          ))}
                           <AssignButton value="exclude" label="Exclude" />
                         </form>
                       </Td>
@@ -195,7 +196,8 @@ export default async function HistoricalMappingPage(props: PageProps<"/historica
           <span>
             Assigning writes to the mapping table below, keyed on the most durable identifier the
             line carries — its SKU where it has one. Nothing is guessed from the catalog, so a
-            product renamed or deleted later keeps costing correctly. Use{" "}
+            product renamed or deleted later keeps costing correctly. Any whole multiple of ten
+            boxes is costable at $45 per ten, so 30 and 70 need no special handling. Use{" "}
             <strong className="font-semibold text-ink">Exclude</strong> for a line that should
             never carry an operational cost, such as a sample or a correction.
           </span>
@@ -277,9 +279,13 @@ export default async function HistoricalMappingPage(props: PageProps<"/historica
               Assignment
             </span>
             <select name="assignment" defaultValue="10" className={inputClass}>
-              <option value="10">10 Pack</option>
-              <option value="20">20 Pack</option>
-              <option value="50">50 Pack</option>
+              {PACK_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size} boxes
+                </option>
+              ))}
+              <option value="40">40 boxes</option>
+              <option value="60">60 boxes</option>
               <option value="exclude">Exclude from costing</option>
             </select>
           </label>

@@ -51,6 +51,7 @@ const { readSettings } = await import("../src/lib/business-costs/store");
 const { costLine } = await import("../src/lib/business-costs/pack-model");
 const { describeIdentity } = await import("../src/lib/business-costs/pack-mapping");
 const { identityOf } = await import("../src/lib/data/live-costs");
+const { orderHistoryWindow, daysBeyondWindow } = await import("../src/lib/shopify/history-window");
 
 const DEFAULT_PERIODS: Array<[string, string, string]> = [
   ["June 2026", "2026-06-01", "2026-06-30"],
@@ -80,9 +81,22 @@ console.log("\nHistorical P&L reconciliation");
 console.log("=".repeat(78));
 console.log(`Shop : ${shop.name} · ${shop.domain}  (days bucketed in ${shop.timezone})`);
 console.log("Path : src/lib/data — the dashboard's own code");
-console.log("Cost : " + settings.packModel.rules
-  .map((rule) => `${rule.packSize} pack ${formatMoney(rule.operationalCost)}`)
-  .join("   ") + `   ·   other variable ${(settings.packModel.variableRateOfNetRevenue * 100).toFixed(1)}% of net sales`);
+
+const window = await orderHistoryWindow(new Date().toISOString().slice(0, 10));
+console.log(
+  "Reach: " +
+    (window.cutoff === null
+      ? "read_all_orders granted — full order history readable"
+      : `orders readable from ${window.cutoff} onward` +
+        (window.unknown ? " (granted scopes not reported; assuming the 60-day limit)" : "")),
+);
+console.log(
+  `Cost : ${formatMoney(settings.packModel.costPerTenBoxes)} per ten boxes` +
+    (settings.packModel.rules.length > 0
+      ? `  (+${settings.packModel.rules.length} exception${settings.packModel.rules.length === 1 ? "" : "s"})`
+      : "") +
+    `   ·   other variable ${(settings.packModel.variableRateOfNetRevenue * 100).toFixed(1)}% of net sales`,
+);
 
 interface PeriodResult {
   label: string;
@@ -90,7 +104,7 @@ interface PeriodResult {
   end: string;
   netSales: number;
   orders: number;
-  packs: Record<number, number>;
+  packs: Map<number, number>;
   unmappedQuantity: number;
   unmappedNames: string[];
   operationalCost: number;
@@ -99,15 +113,18 @@ interface PeriodResult {
   variableCost: number;
   netProfit: number;
   complete: boolean;
+  /** Days Shopify would not return orders for. */
+  missingDays: number;
 }
 
 const results: PeriodResult[] = [];
 
 for (const [label, start, end] of ranges) {
+  const missingDays = daysBeyondWindow(window, start, end);
   const { days, status } = await getLiveDailyFinancials("all", start, end);
   const summary = summarize(days);
 
-  const packs: Record<number, number> = { 10: 0, 20: 0, 50: 0 };
+  const packs = new Map<number, number>();
   let unmappedQuantity = 0;
   const unmappedNames = new Set<string>();
 
@@ -117,7 +134,7 @@ for (const [label, start, end] of ranges) {
     const identity = identityOf(line);
     const costed = costLine(settings.packModel, line.date, line.quantityCosted, identity);
     if (costed.packSize !== null) {
-      packs[costed.packSize] += line.quantityCosted;
+      packs.set(costed.packSize, (packs.get(costed.packSize) ?? 0) + line.quantityCosted);
     } else if (costed.unmapped) {
       unmappedQuantity += line.quantityCosted;
       unmappedNames.add(describeIdentity(identity));
@@ -139,6 +156,7 @@ for (const [label, start, end] of ranges) {
     variableCost: toMinor(summary.variableExpenses),
     netProfit: toMinor(summary.netProfit),
     complete: status.costs.mappingComplete,
+    missingDays,
   });
 }
 
@@ -155,14 +173,21 @@ console.log("-".repeat(30 + COL * results.length));
 console.log(label("Shopify net sales") + results.map((r) => money(r.netSales)).join(""));
 console.log(label("Orders") + results.map((r) => cell(String(r.orders))).join(""));
 console.log();
-for (const size of [10, 20, 50]) {
+// Every bundle size that actually sold in any of the periods, smallest first.
+const sizesSold = [...new Set(results.flatMap((r) => [...r.packs.keys()]))].sort((a, b) => a - b);
+for (const size of sizesSold) {
   console.log(
-    label(`${size} pack quantity`) + results.map((r) => cell(String(r.packs[size]))).join(""),
+    label(`${size} box quantity`) +
+      results.map((r) => cell(String(r.packs.get(size) ?? 0))).join(""),
   );
 }
 console.log(
   label("Unmapped quantity") +
     results.map((r) => cell(r.unmappedQuantity === 0 ? "0" : `${r.unmappedQuantity}  ⚠`)).join(""),
+);
+console.log(
+  label("Days Shopify hid") +
+    results.map((r) => cell(r.missingDays === 0 ? "0" : `${r.missingDays}  ⚠`)).join(""),
 );
 console.log();
 console.log(label("Operational cost") + results.map((r) => money(r.operationalCost)).join(""));
@@ -187,11 +212,17 @@ if (blocked.length === 0) {
   process.exit(0);
 }
 
-console.log("\nUNMAPPED PRODUCTS");
+console.log("\nWHAT IS BLOCKING EACH PERIOD");
 console.log("-".repeat(78));
 for (const result of blocked) {
   console.log(`  ${result.label}  (${result.start} .. ${result.end})`);
-  if (result.unmappedNames.length === 0) {
+  if (result.missingDays > 0) {
+    console.log(
+      `    ${result.missingDays} day(s) before ${window.cutoff} were not returned by Shopify.` +
+        " Request read_all_orders to report on them.",
+    );
+  }
+  if (result.unmappedNames.length === 0 && result.missingDays === 0) {
     console.log("    Shopify line items could not be read for this period.");
   }
   for (const name of result.unmappedNames) console.log(`    · ${name}`);

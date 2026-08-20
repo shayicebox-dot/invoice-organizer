@@ -188,18 +188,26 @@ same command verifies any range.
 
 ### The pack cost model
 
-One flat operational cost per pack size. This is the default and the real Kicks
-Box model:
+One rate, stated once: **$45 per ten boxes**, covering product, shipping,
+storage and pick & pack together. Every bundle is built from tens, so every
+bundle prices from the same rate:
 
-| Pack | Operational cost | Covers |
-|---|---|---|
-| 10 | **$45** | product · shipping · storage · pick & pack |
-| 20 | **$90** | product · shipping · storage · pick & pack |
-| 50 | **$225** | product · shipping · storage · pick & pack |
+| Bundle | Sells for | Operational cost | |
+|---|---|---|---|
+| 10 boxes | $115 | **$45** | |
+| 20 boxes | $180 | **$90** | |
+| 30 boxes | $295 | **$135** | 20 + 10 |
+| 50 boxes | $390 | **$225** | |
+| 70 boxes | $570 | **$315** | 50 + 20 |
+
+Only the rate is configured. A 40 costs $180 and a 60 costs $270 without a code
+change, and a bundle size introduced tomorrow prices itself. `rules` in the
+settings file holds *exceptions* — a size whose cost genuinely diverges over
+some window — and is normally empty.
 
 There is no separate COGS and fulfillment split, and nothing is read from
 Shopify's cost per item or from inventory valuation — the business knows what a
-pack costs.
+box costs.
 
 Plus **5% of Shopify net revenue** for other variable costs — payment
 processing, Shopify fees and apps, and small variable operating expenses. It is
@@ -224,14 +232,35 @@ instead, in this order:
 2. a **built-in alias** for an identifier the business has used historically;
 3. the **line's own text**, but only when it states a pack size unambiguously.
 
-Step 3 refuses more than it accepts. Two rules disqualify a line from text
-matching entirely and send it to the merchant instead:
+Step 3 refuses more than it accepts. A number only reads as a box count when
+the text says so — next to a pack or box word (`30-pack`, `pack of 70`,
+`20 boxes`), or as a whole segment of a SKU against a size the business is known
+to sell (`KB-30-BLUE`). `Summer 2050 Collection` is not a 2050-pack and
+`WHITE-US1` is not a 1-pack.
+
+Two rules then disqualify a line from text matching entirely and send it to the
+merchant instead:
 
 - a **partial-quantity word** — `half of 50-pack` is not a 50-pack, and costing
   it as one overstates cost by $225 a unit;
-- a **pack size the business does not sell** — `30-pack` proves the text uses
-  pack wording, so reading some other number out of it would be inventing an
-  answer.
+- a **box count that is not a whole multiple of ten** — the rate is priced per
+  ten boxes, so `25 pack` has no cost the model can derive.
+
+#### Shopify's 60-day order window
+
+An app without the `read_all_orders` scope can only read orders from the last
+**60 days**. Older orders are not an error and not an empty page — they are
+simply absent, which is the dangerous shape: revenue and cost both read as zero
+for the invisible days, the period reconciles against itself, and the statement
+reports a confident profit for a month it never loaded.
+
+So the window is computed explicitly from the granted scopes
+(`src/lib/shopify/history-window.ts`) and any range crossing it marks the P&L
+incomplete, naming the cutoff and the number of days that could not be loaded.
+Scopes Shopify declines to report count as restricted, not as permission.
+
+`read_all_orders` is granted by Shopify on request for apps that genuinely need
+order history; it cannot simply be added to an app's manifest.
 
 #### Nothing partial is ever shown as profit
 

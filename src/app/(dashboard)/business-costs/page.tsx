@@ -31,6 +31,7 @@ import {
   setCogsMode,
 } from "@/lib/business-costs/actions";
 import { readSettings } from "@/lib/business-costs/store";
+import { pricedPackSizes, ruleFor } from "@/lib/business-costs/pack-model";
 import { getLiveRangeReport, getStores } from "@/lib/data";
 import { formatMoney, formatPercent } from "@/lib/money";
 import { formatDateLong } from "@/lib/date-range";
@@ -80,6 +81,19 @@ export default async function BusinessCostsPage(props: PageProps<"/business-cost
   const sources = costs.sources;
   const today = new Date().toISOString().slice(0, 10);
 
+  // The bundle sizes worth showing: the ones sold today, plus anything with an
+  // explicit exception. Every row is derived from the per-ten rate unless a
+  // rule says otherwise.
+  const packRows = pricedPackSizes(settings.packModel)
+    .map((size) => {
+      const rule = ruleFor(settings.packModel, size, today);
+      if (!rule) return null;
+      return { rule, derived: rule.id.startsWith("derived_") };
+    })
+    .filter((row): row is { rule: NonNullable<ReturnType<typeof ruleFor>>; derived: boolean } =>
+      row !== null,
+    );
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -127,36 +141,49 @@ export default async function BusinessCostsPage(props: PageProps<"/business-cost
       {/* ---------------- Pack cost model ---------------- */}
       <CostSection
         title="Pack Cost Model"
-        description="One flat operational cost per pack, applied to every Shopify line item. Product cost, shipping, storage and pick & pack are all inside it; the percentage below covers processing and other small variable costs."
+        description="One rate — $45 per ten boxes — applied to every Shopify line item by the number of boxes it carries. Product cost, shipping, storage and pick & pack are all inside it; the percentage below covers processing and other small variable costs."
         source={sources.cogs}
         total={formatMoney(summary.cogs, summary.currency)}
       >
         <TableFrame>
           <thead>
             <tr>
-              <Th>Pack</Th>
-              <Th align="right">Operational cost per pack</Th>
-              <Th>Covers</Th>
-              <Th>Effective from</Th>
+              <Th>Bundle</Th>
+              <Th align="right">Boxes</Th>
+              <Th align="right">Operational cost</Th>
+              <Th>How it is priced</Th>
             </tr>
           </thead>
           <tbody>
-            {settings.packModel.rules.map((rule) => (
-              <tr key={rule.id} className="transition-colors hover:bg-surface-muted">
-                <Td className="pr-4 font-medium">{rule.label}</Td>
+            {packRows.map((row) => (
+              <tr key={row.rule.id} className="transition-colors hover:bg-surface-muted">
+                <Td className="pr-4 font-medium">{row.rule.label}</Td>
+                <Td align="right" numeric>
+                  {row.rule.packSize}
+                </Td>
                 <Td align="right" numeric className="font-semibold">
-                  {formatMoney(rule.operationalCost)}
+                  {formatMoney(row.rule.operationalCost)}
                 </Td>
                 <Td className="pr-4 text-ink-secondary">
-                  Product · shipping · storage · pick &amp; pack
+                  {row.derived
+                    ? `${row.rule.packSize / 10} × ${formatMoney(settings.packModel.costPerTenBoxes)} per ten boxes`
+                    : `Exception, effective ${formatDateLong(row.rule.effectiveFrom)}`}
                 </Td>
-                <Td className="pr-4 text-ink-secondary">{formatDateLong(rule.effectiveFrom)}</Td>
               </tr>
             ))}
           </tbody>
         </TableFrame>
 
         <p className="mt-4 rounded-md border border-line bg-surface-muted px-3 py-2.5 text-[12px] leading-5 text-ink-secondary">
+          <strong className="font-semibold text-ink">
+            Operational cost: {formatMoney(settings.packModel.costPerTenBoxes)} per ten boxes
+          </strong>{" "}
+          — every bundle is built from tens, so a 30 costs what a 20 and a 10 cost together, and a
+          bundle size introduced tomorrow prices itself. Sizes above are shown for reference; only
+          the rate is configured.
+        </p>
+
+        <p className="mt-3 rounded-md border border-line bg-surface-muted px-3 py-2.5 text-[12px] leading-5 text-ink-secondary">
           <strong className="font-semibold text-ink">
             Other variable costs: {(settings.packModel.variableRateOfNetRevenue * 100).toFixed(1)}%
             of Shopify net revenue

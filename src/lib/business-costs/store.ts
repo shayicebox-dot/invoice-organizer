@@ -33,19 +33,32 @@ let cache: { value: BusinessCostSettings; loadedAt: number } | null = null;
 const CACHE_TTL_MS = 1_000;
 
 /**
- * An earlier model split a pack's cost into product COGS and fulfillment. They
- * are one operational figure now, so a stored file written before the change is
- * migrated by adding the two halves rather than being discarded.
+ * Per-size rules are exceptions now — every bundle derives from one per-ten
+ * rate. A stored file from before that carries a rule for 10, 20 and 50; the
+ * ones that simply restate the rate are dropped, and any that genuinely
+ * diverges is kept as the exception it has become.
+ *
+ * An older file still split each rule into product COGS and fulfillment, so
+ * those two halves are added rather than discarded.
  */
-function migrateRules(raw: unknown, fallback: PackRule[]): PackRule[] {
-  if (!Array.isArray(raw) || raw.length === 0) return fallback;
+function migrateRules(raw: unknown, ratePerTen: number): PackRule[] {
+  if (!Array.isArray(raw) || raw.length === 0) return [];
 
-  return raw.map((rule) => {
-    const record = rule as Partial<PackRule> & { productCogs?: number; fulfillmentCost?: number };
-    if (typeof record.operationalCost === "number") return record as PackRule;
-    const legacy = (record.productCogs ?? 0) + (record.fulfillmentCost ?? 0);
-    return { ...record, operationalCost: legacy } as PackRule;
-  });
+  return raw
+    .map((rule) => {
+      const record = rule as Partial<PackRule> & {
+        productCogs?: number;
+        fulfillmentCost?: number;
+      };
+      if (typeof record.operationalCost === "number") return record as PackRule;
+      const legacy = (record.productCogs ?? 0) + (record.fulfillmentCost ?? 0);
+      return { ...record, operationalCost: legacy } as PackRule;
+    })
+    .filter((rule) => {
+      if (!Number.isInteger(rule.packSize) || rule.packSize <= 0) return false;
+      const derived = Math.round((ratePerTen * rule.packSize) / 10);
+      return rule.operationalCost !== derived;
+    });
 }
 
 /**
@@ -96,6 +109,11 @@ function normalize(raw: Partial<BusinessCostSettings> | null): BusinessCostSetti
   const base = emptySettings();
   if (!raw || typeof raw !== "object") return base;
 
+  const ratePerTen =
+    typeof raw.packModel?.costPerTenBoxes === "number"
+      ? raw.packModel.costPerTenBoxes
+      : base.packModel.costPerTenBoxes;
+
   return {
     version: 1,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : base.updatedAt,
@@ -104,7 +122,8 @@ function normalize(raw: Partial<BusinessCostSettings> | null): BusinessCostSetti
       skuCosts: Array.isArray(raw.cogs?.skuCosts) ? raw.cogs.skuCosts : [],
     },
     packModel: {
-      rules: migrateRules(raw.packModel?.rules, base.packModel.rules),
+      costPerTenBoxes: ratePerTen,
+      rules: migrateRules(raw.packModel?.rules, ratePerTen),
       mappings: migrateMappings(raw.packModel),
       variableRateOfNetRevenue:
         typeof raw.packModel?.variableRateOfNetRevenue === "number"

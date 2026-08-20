@@ -93,10 +93,13 @@ const model = settings.packModel;
 
 console.log("Cost model in force");
 console.log("-".repeat(108));
+console.log(
+  `  Operational cost  ${formatMoney(model.costPerTenBoxes)} per ten boxes` +
+    "   (product · shipping · storage · pick & pack)",
+);
 for (const rule of model.rules) {
   console.log(
-    `  ${rule.label.padEnd(14)} operational cost ${formatMoney(rule.operationalCost).padStart(9)}` +
-      "   (product · shipping · storage · pick & pack)",
+    `  Exception         ${rule.label.padEnd(14)} ${formatMoney(rule.operationalCost).padStart(9)}`,
   );
 }
 console.log(
@@ -145,7 +148,7 @@ if (mapped.length === 0) {
 } else {
   console.log(
     pad("SKU", 18) + pad("PRODUCT TITLE", 30) + pad("VARIANT", 18) +
-      rpad("PACK", 6) + rpad("VIA", 10) + rpad("QTY", 6) + rpad("COST", 12),
+      rpad("BOXES", 6) + rpad("VIA", 10) + rpad("QTY", 6) + rpad("COST", 12),
   );
   for (const row of mapped) {
     console.log(

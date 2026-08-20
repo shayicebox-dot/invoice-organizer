@@ -19,6 +19,7 @@ export function MappingGate({ costs }: { costs: BusinessCostStatus }) {
   if (costs.mappingComplete) return null;
 
   const rows = costs.unmapped;
+  const limit = costs.historyLimit;
 
   return (
     <section className="rounded-lg border border-amber-200 bg-amber-50/60 p-4">
@@ -29,16 +30,34 @@ export function MappingGate({ costs }: { costs: BusinessCostStatus }) {
         </h2>
       </div>
 
+      {limit ? (
+        <p className="mt-2 max-w-3xl text-[12.5px] leading-5 text-ink-secondary">
+          Shopify will not return orders placed before{" "}
+          <strong className="font-semibold text-ink">{formatDateShort(limit.cutoff)}</strong> to
+          this app, so {formatNumber(limit.daysMissing)} day
+          {limit.daysMissing === 1 ? "" : "s"} of this range could not be loaded at all. Those days
+          are invisible rather than quiet — revenue and cost both read as zero for them, which
+          would make the period reconcile against itself and report a profit it never earned.
+          {limit.scopeUnknown
+            ? " Shopify did not report this app's granted scopes, so the limit could not be confirmed either way."
+            : ""}{" "}
+          Request the <code className="font-mono text-[11.5px]">read_all_orders</code> scope from
+          Shopify to report on more than the last 60 days.
+        </p>
+      ) : null}
+
       <p className="mt-2 max-w-3xl text-[12.5px] leading-5 text-ink-secondary">
         {rows.length > 0 ? (
           <>
             {formatNumber(costs.unmappedLineItems)} order line
             {costs.unmappedLineItems === 1 ? "" : "s"} covering{" "}
             {formatNumber(costs.unmappedQuantity)} pack
-            {costs.unmappedQuantity === 1 ? "" : "s"} could not be resolved to a 10, 20 or 50 pack,
+            {costs.unmappedQuantity === 1 ? "" : "s"} could not be resolved to a box quantity,
             so no operational cost was applied to them. Every profit and margin figure is withheld
             until each one is assigned.
           </>
+        ) : limit ? (
+          <>Profit is withheld rather than calculated from a period that is partly unreadable.</>
         ) : (
           <>
             {costs.lineItemError ??

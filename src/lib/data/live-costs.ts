@@ -31,6 +31,8 @@ import type { IdentityInput, ProductIdentityRow } from "../business-costs/invent
 import type { PackMappingEntry } from "../business-costs/pack-model";
 import { NO_SKU } from "../shopify/cogs";
 import { getGrantedScopes } from "../shopify/client";
+import { ORDER_HISTORY_DAYS, daysBeyondWindow, orderHistoryWindow } from "../shopify/history-window";
+import type { OrderHistoryWindow } from "../shopify/history-window";
 
 export interface BusinessCostStatus {
   configured: boolean;
@@ -51,6 +53,12 @@ export interface BusinessCostStatus {
   unmapped: ProductIdentityRow[];
   unmappedLineItems: number;
   unmappedQuantity: number;
+  /**
+   * Set when the range reaches past what Shopify will let this app read. The
+   * missing days are invisible rather than empty, so nothing in the period can
+   * be trusted — not the cost, and not the revenue it is measured against.
+   */
+  historyLimit: { cutoff: ISODate; daysMissing: number; scopeUnknown: boolean } | null;
   updatedAt: string;
 }
 
@@ -70,6 +78,7 @@ export const COSTS_NOT_CONFIGURED: BusinessCostStatus = {
   unmapped: [],
   unmappedLineItems: 0,
   unmappedQuantity: 0,
+  historyLimit: null,
   updatedAt: new Date(0).toISOString(),
 };
 
@@ -180,6 +189,8 @@ export async function applyBusinessCosts(
     ? await loadShopifyCogs(start, end, settings.cogs.mode === "shopify_cost_per_item")
     : { result: null, error: null };
 
+  const historyLimit = getShopifyConfig() ? await describeHistoryLimit(start, end) : null;
+
   const cogsByDate = new Map((cogsResult.result?.byDate ?? []).map((day) => [day.date, day]));
 
   // Units per SKU, derived from the costed lines, for the manual cost table.
@@ -190,9 +201,9 @@ export async function applyBusinessCosts(
     unitsBySkuByDate.set(line.date, bucket);
   }
 
-  // Pack costing: each line is resolved to a 10, 20 or 50 pack and costed at
-  // that pack's flat operational cost. A line that cannot be resolved
-  // contributes nothing, is named, and blocks the profit figures entirely.
+  // Pack costing: each line is resolved to a box quantity and costed from the
+  // per-ten rate. A line that cannot be resolved contributes nothing, is named,
+  // and blocks the profit figures entirely.
   const packByDate = new Map<string, Money>();
   const unmappedByDate = new Map<string, Set<string>>();
   const identityInputs: IdentityInput[] = [];
@@ -278,7 +289,7 @@ export async function applyBusinessCosts(
       section: "cogs",
       message:
         `P&L INCOMPLETE — ${unmappedList.length} historical product${unmappedList.length === 1 ? "" : "s"} ` +
-        `${unmappedList.length === 1 ? "is" : "are"} not mapped to a 10, 20 or 50 pack ` +
+        `${unmappedList.length === 1 ? "is" : "are"} not mapped to a box quantity ` +
         `(${unmappedLineItems} line item${unmappedLineItems === 1 ? "" : "s"}, ` +
         `${unmappedQuantity} pack${unmappedQuantity === 1 ? "" : "s"}). ` +
         `Profit is withheld until they are assigned on the Historical Product Mapping page.`,
@@ -318,11 +329,30 @@ export async function applyBusinessCosts(
       ? "incomplete"
       : sources.cogs;
 
+  if (historyLimit) {
+    issues.unshift({
+      section: "cogs",
+      message:
+        `P&L INCOMPLETE — Shopify will not return orders before ${historyLimit.cutoff} to this ` +
+        `app, so ${historyLimit.daysMissing} day${historyLimit.daysMissing === 1 ? "" : "s"} of ` +
+        `this range could not be loaded at all. Those days are invisible, not quiet: revenue and ` +
+        `cost both read as zero for them.` +
+        (historyLimit.scopeUnknown
+          ? " Shopify did not report the app's granted scopes, so the limit could not be confirmed."
+          : "") +
+        ` Request the read_all_orders scope from Shopify to report on more than the last ` +
+        `${ORDER_HISTORY_DAYS} days.`,
+      details: [],
+    });
+  }
+
   // Under the pack model the P&L is only trustworthy when every line is
-  // mapped. A failure to read line items at all counts as incomplete too.
+  // mapped. A failure to read line items at all counts as incomplete too, as
+  // does a range reaching past what Shopify will return.
   const mappingComplete =
-    settings.cogs.mode !== "pack_cost_model" ||
-    (unmappedList.length === 0 && packAvailable && cogsResult.error === null);
+    historyLimit === null &&
+    (settings.cogs.mode !== "pack_cost_model" ||
+      (unmappedList.length === 0 && packAvailable && cogsResult.error === null));
 
   return {
     days: applied,
@@ -336,9 +366,31 @@ export async function applyBusinessCosts(
       unmapped: unmappedList,
       unmappedLineItems,
       unmappedQuantity,
+      historyLimit,
       updatedAt: settings.updatedAt,
     },
   };
+}
+
+/**
+ * Whether the range reaches past Shopify's order-read window, and by how much.
+ * `null` when the whole range is readable.
+ */
+async function describeHistoryLimit(
+  start: ISODate,
+  end: ISODate,
+): Promise<BusinessCostStatus["historyLimit"]> {
+  let window: OrderHistoryWindow;
+  try {
+    window = await orderHistoryWindow(new Date().toISOString().slice(0, 10));
+  } catch {
+    return null;
+  }
+
+  const daysMissing = daysBeyondWindow(window, start, end);
+  if (daysMissing === 0 || window.cutoff === null) return null;
+
+  return { cutoff: window.cutoff, daysMissing, scopeUnknown: window.unknown };
 }
 
 /** The identity a line carries, as the order recorded it. */

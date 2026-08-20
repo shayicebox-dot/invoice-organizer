@@ -15,7 +15,7 @@ import { revalidatePath } from "next/cache";
 import { type Money, ZERO, parseDecimalToMinor } from "../money";
 import type { ExpenseCategory, ISODate } from "../types";
 import { updateSettings } from "./store";
-import { PACK_SIZES } from "./pack-mapping";
+import { isPackQuantity } from "./pack-mapping";
 import type { MappingKey, PackAssignment, PackMappingEntry } from "./pack-mapping";
 import type { PaymentProcessor, Recurrence, RecurringCost, ShippingRate, SkuCost } from "./types";
 
@@ -112,9 +112,9 @@ const MAPPING_KEYS: MappingKey[] = [
 function parseAssignment(raw: string): PackAssignment | null {
   if (raw === "exclude") return "exclude";
   const size = Number.parseInt(raw, 10);
-  return (PACK_SIZES as readonly number[]).includes(size)
-    ? (size as PackAssignment)
-    : null;
+  // Any whole multiple of ten is costable from the per-ten rate; anything else
+  // has no cost the model can derive, so it is refused rather than rounded.
+  return isPackQuantity(size) ? size : null;
 }
 
 /**

@@ -26,6 +26,7 @@ import {
   matchPack,
 } from "../src/lib/business-costs/pack-mapping";
 import { buildIdentityInventory } from "../src/lib/business-costs/inventory";
+import { daysBeyondWindow } from "../src/lib/shopify/history-window";
 import { fromMajor, toMinor } from "../src/lib/money";
 
 const model = defaultPackModel();
@@ -48,16 +49,52 @@ const entry = (over: Partial<PackMappingEntry> & Pick<PackMappingEntry, "key" | 
     ...over,
   }) as PackMappingEntry;
 
-describe("the simple fixed cost model", () => {
-  it("carries one operational cost per pack", () => {
+describe("the per-ten cost model", () => {
+  it("prices every bundle from $45 per ten boxes", () => {
     for (const [size, total] of [
       [10, 45],
       [20, 90],
+      [30, 135],
+      [40, 180],
       [50, 225],
+      [60, 270],
+      [70, 315],
     ] as const) {
       const rule = ruleFor(model, size, "2026-06-15")!;
-      assert.equal(toMinor(rule.operationalCost), toMinor(fromMajor(total)), `pack of ${size}`);
+      assert.equal(toMinor(rule.operationalCost), toMinor(fromMajor(total)), `${size} boxes`);
     }
+  });
+
+  it("prices a 30 as a 20 plus a 10, and a 70 as a 50 plus a 20", () => {
+    const cost = (size: number) => toMinor(ruleFor(model, size, "2026-06-15")!.operationalCost);
+    assert.equal(cost(30), cost(20) + cost(10));
+    assert.equal(cost(70), cost(50) + cost(20));
+  });
+
+  it("refuses a box count that is not a whole multiple of ten", () => {
+    assert.equal(ruleFor(model, 25, "2026-06-15"), null);
+    assert.equal(ruleFor(model, 0, "2026-06-15"), null);
+    assert.equal(ruleFor(model, -10, "2026-06-15"), null);
+  });
+
+  it("lets an explicit exception override the rate for one size", () => {
+    const withException: PackCostModel = {
+      ...model,
+      rules: [
+        {
+          id: "promo_30",
+          packSize: 30,
+          label: "Promo 30",
+          operationalCost: fromMajor(120),
+          effectiveFrom: "2026-07-01",
+          effectiveTo: null,
+        },
+      ],
+    };
+    assert.equal(toMinor(ruleFor(withException, 30, "2026-07-05")!.operationalCost), toMinor(fromMajor(120)));
+    // Outside the exception's window, and for every other size, the rate stands.
+    assert.equal(toMinor(ruleFor(withException, 30, "2026-06-05")!.operationalCost), toMinor(fromMajor(135)));
+    assert.equal(toMinor(ruleFor(withException, 20, "2026-07-05")!.operationalCost), toMinor(fromMajor(90)));
   });
 
   it("charges 5% of net revenue for other variable costs", () => {
@@ -104,6 +141,34 @@ describe("mapping real historical lines", () => {
   }
 });
 
+describe("bundle sizes stated in the text", () => {
+  it("maps a 30-pack, which is a real bundle size", () => {
+    // Real line from order #2855.
+    const match = matchPack(model.mappings, line({ title: "30-pack" }));
+    assert.equal(match.packSize, 30);
+    assert.equal(match.confidence, "title");
+  });
+
+  it("maps any whole multiple of ten stated as a pack", () => {
+    for (const size of [10, 20, 30, 40, 50, 60, 70]) {
+      assert.equal(matchPack(model.mappings, line({ title: `${size}-pack` })).packSize, size);
+      assert.equal(matchPack(model.mappings, line({ title: `pack of ${size}` })).packSize, size);
+      assert.equal(matchPack(model.mappings, line({ title: `${size} boxes` })).packSize, size);
+    }
+  });
+
+  it("costs 30 and 70 boxes at the stated figures", () => {
+    assert.equal(
+      toMinor(costLine(model, "2026-06-27", 1, line({ title: "30-pack" })).operationalCost),
+      toMinor(fromMajor(135)),
+    );
+    assert.equal(
+      toMinor(costLine(model, "2026-06-27", 1, line({ title: "70 boxes" })).operationalCost),
+      toMinor(fromMajor(315)),
+    );
+  });
+});
+
 describe("refusing to guess", () => {
   it("will not read a partial quantity as a whole pack", () => {
     // Real line from order #3050. "half of 50-pack" is not a 50-pack, and
@@ -113,11 +178,12 @@ describe("refusing to guess", () => {
     assert.equal(match.confidence, "unsupported");
   });
 
-  it("will not map a pack size the business does not sell", () => {
-    // Real line from order #2855.
-    const match = matchPack(model.mappings, line({ title: "30-pack" }));
-    assert.equal(match.packSize, null);
-    assert.equal(match.confidence, "unsupported");
+  it("will not map a box count that is not a whole multiple of ten", () => {
+    for (const title of ["25 pack", "3-pack", "pack of 7"]) {
+      const match = matchPack(model.mappings, line({ title }));
+      assert.equal(match.packSize, null, title);
+      assert.equal(match.confidence, "unsupported", title);
+    }
   });
 
   it("refuses a title that states two sizes", () => {
@@ -132,9 +198,26 @@ describe("refusing to guess", () => {
     assert.equal(matchPack(model.mappings, line()).packSize, null);
   });
 
+  it("reads an arbitrary SKU number as nothing at all", () => {
+    // A SKU says nothing about what its digits mean, so only a size the
+    // business actually sells counts. WHITE-US1 is not a 1-pack, and a year in
+    // a product code is not a bundle.
+    assert.equal(matchPack([], line({ sku: "WHITE-US1" })).packSize, null);
+    assert.equal(matchPack(model.mappings, line({ sku: "KB-2024-X" })).packSize, null);
+    assert.equal(matchPack(model.mappings, line({ sku: "KB-40-X" })).packSize, null);
+    // But a size on the sold list still reads from a SKU segment.
+    assert.equal(matchPack(model.mappings, line({ sku: "KB-30-BLUE" })).packSize, 30);
+  });
+
   it("never reads 100 as 10", () => {
-    assert.equal(matchPack(model.mappings, line({ title: "100 pack" })).packSize, null);
+    // A stated 100-pack is a real multiple of ten and costs $450 — but the
+    // digits alone, with no pack word, remain meaningless.
+    assert.equal(matchPack(model.mappings, line({ title: "100 pack" })).packSize, 100);
     assert.equal(matchPack(model.mappings, line({ sku: "KB-100" })).packSize, null);
+  });
+
+  it("bounds what a stated box count can be", () => {
+    assert.equal(matchPack(model.mappings, line({ title: "9000 pack" })).packSize, null);
   });
 });
 
@@ -184,7 +267,7 @@ describe("costing a line", () => {
   });
 
   it("costs an unmapped line at zero and flags it", () => {
-    const costed = costLine(model, "2026-06-27", 1, line({ title: "30-pack" }));
+    const costed = costLine(model, "2026-07-20", 1, line({ title: "half of 50-pack" }));
     assert.equal(toMinor(costed.operationalCost), 0);
     assert.equal(costed.unmapped, true);
   });
@@ -192,27 +275,17 @@ describe("costing a line", () => {
   it("costs an excluded line at zero without flagging it", () => {
     const excluded: PackCostModel = {
       ...model,
-      mappings: [...model.mappings, entry({ key: "product_title", value: "30-pack", assignment: "exclude" })],
+      mappings: [...model.mappings, entry({ key: "product_title", value: "half of 50-pack", assignment: "exclude" })],
     };
-    const costed = costLine(excluded, "2026-06-27", 1, line({ title: "30-pack" }));
+    const costed = costLine(excluded, "2026-07-20", 1, line({ title: "half of 50-pack" }));
     assert.equal(toMinor(costed.operationalCost), 0);
     assert.equal(costed.unmapped, false);
     assert.equal(costed.excluded, true);
   });
 
   it("does not flag a line whose units all came back to stock", () => {
-    const costed = costLine(model, "2026-06-27", 0, line({ title: "30-pack" }));
+    const costed = costLine(model, "2026-07-20", 0, line({ title: "half of 50-pack" }));
     assert.equal(costed.unmapped, false);
-  });
-
-  it("refuses to cost a pack with no rule in force on that day", () => {
-    const dated: PackCostModel = {
-      ...model,
-      rules: model.rules.map((rule) => ({ ...rule, effectiveFrom: "2026-07-01" })),
-    };
-    const costed = costLine(dated, "2026-06-25", 1, line({ sku: "WHITE-US1" }));
-    assert.equal(toMinor(costed.operationalCost), 0);
-    assert.equal(costed.unmapped, true);
   });
 });
 
@@ -242,16 +315,16 @@ describe("the historical inventory", () => {
   it("puts unmapped identities first, whatever they sold", () => {
     const rows = buildIdentityInventory(model, [
       input({ sku: "WHITE-US-5", variantTitle: "50 Pack Boxes", date: "2026-07-01", quantity: 100 }),
-      input({ title: "30-pack", date: "2026-06-27", quantity: 1 }),
+      input({ title: "half of 50-pack", date: "2026-07-20", quantity: 1 }),
     ]);
 
     assert.equal(rows[0].status, "unmapped");
-    assert.equal(rows[0].title, "30-pack");
+    assert.equal(rows[0].title, "half of 50-pack");
   });
 
   it("does not block the P&L over a line that sold nothing", () => {
     const rows = buildIdentityInventory(model, [
-      input({ title: "30-pack", date: "2026-06-27", quantity: 0 }),
+      input({ title: "half of 50-pack", date: "2026-07-20", quantity: 0 }),
     ]);
     assert.equal(rows[0].status, "excluded");
   });
@@ -264,8 +337,11 @@ describe("the historical inventory", () => {
     ]);
 
     assert.equal(rows.length, 2);
-    assert.equal(rows.every((row) => row.status === "unmapped"), true);
-    assert.equal(rows.find((row) => row.title === "half of 50-pack")!.quantity, 2);
+    // The 30-pack now costs; only the half-pack still needs a decision.
+    assert.equal(rows[0].status, "unmapped");
+    assert.equal(rows[0].title, "half of 50-pack");
+    assert.equal(rows[0].quantity, 2);
+    assert.equal(rows.find((row) => row.title === "30-pack")!.status, "mapped");
   });
 
   it("keys an identity on what the order recorded", () => {
@@ -277,5 +353,30 @@ describe("the historical inventory", () => {
   it("labels a line with no SKU by its title alone", () => {
     assert.equal(describeIdentity(line({ title: "30-pack" })), "30-pack");
     assert.equal(describeIdentity(line({ sku: "KB-1", title: "Wall" })), "KB-1 — Wall");
+  });
+});
+
+describe("Shopify's order-read window", () => {
+  const restricted = { cutoff: "2026-06-21", unrestricted: false, unknown: false };
+  const unlimited = { cutoff: null, unrestricted: true, unknown: false };
+
+  it("counts the days of a range that fall before the cutoff", () => {
+    // June 2026 against a 60-day window ending 2026-08-20: the first twenty
+    // days are invisible, not quiet.
+    assert.equal(daysBeyondWindow(restricted, "2026-06-01", "2026-06-30"), 20);
+    assert.equal(daysBeyondWindow(restricted, "2026-06-20", "2026-06-30"), 1);
+  });
+
+  it("counts nothing when the range starts inside the window", () => {
+    assert.equal(daysBeyondWindow(restricted, "2026-06-21", "2026-06-30"), 0);
+    assert.equal(daysBeyondWindow(restricted, "2026-07-01", "2026-07-31"), 0);
+  });
+
+  it("counts a range that ends before the cutoff in full", () => {
+    assert.equal(daysBeyondWindow(restricted, "2026-05-01", "2026-05-31"), 31);
+  });
+
+  it("counts nothing when read_all_orders is granted", () => {
+    assert.equal(daysBeyondWindow(unlimited, "2020-01-01", "2026-06-30"), 0);
   });
 });

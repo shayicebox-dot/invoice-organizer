@@ -128,14 +128,13 @@ if (packTotals.size > 0 || unmappedQuantity > 0) {
   let totalQuantity = 0;
   let totalCost = 0;
 
-  for (const size of [10, 20, 50]) {
-    const bucket = packTotals.get(size);
-    if (!bucket) continue;
+  for (const size of [...packTotals.keys()].sort((a, b) => a - b)) {
+    const bucket = packTotals.get(size)!;
     totalQuantity += bucket.quantity;
     totalCost += bucket.cost;
     const rate = bucket.quantity > 0 ? Math.round(bucket.cost / bucket.quantity) : 0;
     console.log(
-      `  ${`${size} pack`.padEnd(12)}${String(bucket.quantity).padStart(10)}` +
+      `  ${`${size} boxes`.padEnd(12)}${String(bucket.quantity).padStart(10)}` +
         `${formatMoney(fromMinor(rate)).padStart(12)}` +
         `${formatMoney(fromMinor(bucket.cost)).padStart(20)}`,
     );

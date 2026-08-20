@@ -321,7 +321,7 @@ export function calculateCosts(
       section: "cogs",
       message:
         settings.cogs.mode === "pack_cost_model"
-          ? `${missingSkus.size} product${missingSkus.size === 1 ? "" : "s"} could not be mapped to a 10, 20 or 50 pack. No cost was applied to them, so the P&L is incomplete and profit is withheld.`
+          ? `${missingSkus.size} product${missingSkus.size === 1 ? "" : "s"} could not be mapped to a box quantity. No cost was applied to them, so the P&L is incomplete and profit is withheld.`
           : `${missingSkus.size} SKU${missingSkus.size === 1 ? "" : "s"} sold with no configured unit cost, so COGS understates.`,
       details: [...missingSkus].sort(),
     });
