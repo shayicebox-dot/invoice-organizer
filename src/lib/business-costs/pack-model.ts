@@ -21,9 +21,14 @@
  * profit figures; see that file for why guessing is not on the table.
  */
 
-import { type Money, ZERO, fromMajor, multiply } from "../money";
+import { type Money, ZERO, fromMajor, fromMinor, multiply, toMinor } from "../money";
 import type { ISODate } from "../types";
-import { BOXES_PER_COST_UNIT, builtinMappings, isPackQuantity, matchPack } from "./pack-mapping";
+import {
+  BOXES_PER_COST_UNIT,
+  builtinMappings,
+  isAssignableBoxCount,
+  matchPack,
+} from "./pack-mapping";
 import type {
   LineIdentity,
   MappingConfidence,
@@ -33,7 +38,7 @@ import type {
 import { effectiveRecord } from "./proration";
 import type { EffectiveWindow } from "./types";
 
-export { BOXES_PER_COST_UNIT, isPackQuantity } from "./pack-mapping";
+export { BOXES_PER_COST_UNIT, isPackQuantity, isAssignableBoxCount } from "./pack-mapping";
 import { PACK_SIZES } from "./pack-mapping";
 export { PACK_SIZES };
 export type { PackSize, PackAssignment, PackMappingEntry, LineIdentity } from "./pack-mapping";
@@ -88,8 +93,13 @@ export function defaultPackModel(): PackCostModel {
  * What one bundle of `packSize` boxes costs on a date.
  *
  * An explicit exception wins; otherwise the cost is derived from the per-ten
- * rate. A size that is not a whole multiple of ten has no derivable cost and
- * returns `null` rather than being rounded into one.
+ * rate. The rate is per ten boxes but applies per box, so it prices any whole
+ * box count — 25 boxes costs 2.5 × $45 — and the arithmetic stays in integer
+ * minor units so $112.50 is exactly $112.50.
+ *
+ * Only what may be *inferred from text* is restricted to round tens; that lives
+ * in `pack-mapping.ts`, because it is a question about evidence rather than
+ * about cost.
  */
 export function ruleFor(model: PackCostModel, packSize: PackSize, date: ISODate): PackRule | null {
   const exception = effectiveRecord(
@@ -98,13 +108,15 @@ export function ruleFor(model: PackCostModel, packSize: PackSize, date: ISODate)
   );
   if (exception) return exception;
 
-  if (!isPackQuantity(packSize)) return null;
+  if (!isAssignableBoxCount(packSize)) return null;
 
   return {
     id: `derived_${packSize}`,
     packSize,
     label: `${packSize} boxes`,
-    operationalCost: multiply(model.costPerTenBoxes, packSize / BOXES_PER_COST_UNIT),
+    operationalCost: fromMinor(
+      Math.round((toMinor(model.costPerTenBoxes) * packSize) / BOXES_PER_COST_UNIT),
+    ),
     effectiveFrom: "2000-01-01",
     effectiveTo: null,
   };

@@ -71,10 +71,17 @@ describe("the per-ten cost model", () => {
     assert.equal(cost(70), cost(50) + cost(20));
   });
 
-  it("refuses a box count that is not a whole multiple of ten", () => {
-    assert.equal(ruleFor(model, 25, "2026-06-15"), null);
+  it("prices a box count that is not a round ten, to the cent", () => {
+    // The rate is quoted per ten but applies per box, so 25 boxes is 2.5 × $45.
+    assert.equal(toMinor(ruleFor(model, 25, "2026-07-20")!.operationalCost), toMinor(fromMajor(112.5)));
+    assert.equal(toMinor(ruleFor(model, 1, "2026-07-20")!.operationalCost), toMinor(fromMajor(4.5)));
+  });
+
+  it("refuses a box count that is not a whole positive number", () => {
     assert.equal(ruleFor(model, 0, "2026-06-15"), null);
     assert.equal(ruleFor(model, -10, "2026-06-15"), null);
+    assert.equal(ruleFor(model, 2.5, "2026-06-15"), null);
+    assert.equal(ruleFor(model, 9_999, "2026-06-15"), null);
   });
 
   it("lets an explicit exception override the rate for one size", () => {
@@ -169,11 +176,55 @@ describe("bundle sizes stated in the text", () => {
   });
 });
 
+describe("the half-pack override", () => {
+  // Orders #3050 and #3051, July 2026: real sales of 25 boxes each, recorded
+  // as custom lines. Text can never resolve them, so the box count is an
+  // explicit historical assignment — and the rate prices it like any other.
+  const halfPack = line({ title: "half of 50-pack", lineName: "half of 50-pack" });
+
+  it("resolves the exact historical line to 25 boxes", () => {
+    const match = matchPack(model.mappings, halfPack);
+    assert.equal(match.packSize, 25);
+    assert.equal(match.confidence, "builtin");
+  });
+
+  it("costs it at $112.50, which is 2.5 × $45", () => {
+    const costed = costLine(model, "2026-07-20", 1, halfPack);
+    assert.equal(toMinor(costed.operationalCost), toMinor(fromMajor(112.5)));
+    assert.equal(costed.unmapped, false);
+    assert.equal(costed.excluded, false);
+  });
+
+  it("costs two of them at $225 — the same as one 50, which is the point", () => {
+    const costed = costLine(model, "2026-07-20", 2, halfPack);
+    assert.equal(toMinor(costed.operationalCost), toMinor(fromMajor(225)));
+  });
+
+  it("is not a 50-pack and is not excluded", () => {
+    const match = matchPack(model.mappings, halfPack);
+    assert.notEqual(match.packSize, 50);
+    assert.equal(match.excluded, false);
+  });
+
+  it("applies only to that exact line, not to anything else partial", () => {
+    // A different partial line has no override, so it is still refused.
+    const other = line({ title: "half of 20-pack" });
+    assert.equal(matchPack(model.mappings, other).packSize, null);
+    assert.equal(matchPack(model.mappings, other).confidence, "unsupported");
+  });
+
+  it("leaves the inference rules alone — 25 is still unreadable from text", () => {
+    const stated = matchPack(model.mappings, line({ title: "25 pack" }));
+    assert.equal(stated.packSize, null);
+    assert.equal(stated.confidence, "unsupported");
+  });
+});
+
 describe("refusing to guess", () => {
   it("will not read a partial quantity as a whole pack", () => {
-    // Real line from order #3050. "half of 50-pack" is not a 50-pack, and
-    // costing it as one would overstate cost by $225 a unit.
-    const match = matchPack(model.mappings, line({ title: "half of 50-pack" }));
+    // Without the historical override, "half of" is refused on sight: costing
+    // half a 50-pack as a full one would overstate cost by $112.50 a unit.
+    const match = matchPack([], line({ title: "half of 50-pack" }));
     assert.equal(match.packSize, null);
     assert.equal(match.confidence, "unsupported");
   });
@@ -267,7 +318,7 @@ describe("costing a line", () => {
   });
 
   it("costs an unmapped line at zero and flags it", () => {
-    const costed = costLine(model, "2026-07-20", 1, line({ title: "half of 50-pack" }));
+    const costed = costLine(model, "2026-07-20", 1, line({ title: "mystery bundle" }));
     assert.equal(toMinor(costed.operationalCost), 0);
     assert.equal(costed.unmapped, true);
   });
@@ -275,16 +326,16 @@ describe("costing a line", () => {
   it("costs an excluded line at zero without flagging it", () => {
     const excluded: PackCostModel = {
       ...model,
-      mappings: [...model.mappings, entry({ key: "product_title", value: "half of 50-pack", assignment: "exclude" })],
+      mappings: [entry({ key: "product_title", value: "sample", assignment: "exclude" })],
     };
-    const costed = costLine(excluded, "2026-07-20", 1, line({ title: "half of 50-pack" }));
+    const costed = costLine(excluded, "2026-07-20", 1, line({ title: "sample" }));
     assert.equal(toMinor(costed.operationalCost), 0);
     assert.equal(costed.unmapped, false);
     assert.equal(costed.excluded, true);
   });
 
   it("does not flag a line whose units all came back to stock", () => {
-    const costed = costLine(model, "2026-07-20", 0, line({ title: "half of 50-pack" }));
+    const costed = costLine(model, "2026-07-20", 0, line({ title: "mystery bundle" }));
     assert.equal(costed.unmapped, false);
   });
 });
@@ -315,16 +366,16 @@ describe("the historical inventory", () => {
   it("puts unmapped identities first, whatever they sold", () => {
     const rows = buildIdentityInventory(model, [
       input({ sku: "WHITE-US-5", variantTitle: "50 Pack Boxes", date: "2026-07-01", quantity: 100 }),
-      input({ title: "half of 50-pack", date: "2026-07-20", quantity: 1 }),
+      input({ title: "mystery bundle", date: "2026-07-20", quantity: 1 }),
     ]);
 
     assert.equal(rows[0].status, "unmapped");
-    assert.equal(rows[0].title, "half of 50-pack");
+    assert.equal(rows[0].title, "mystery bundle");
   });
 
   it("does not block the P&L over a line that sold nothing", () => {
     const rows = buildIdentityInventory(model, [
-      input({ title: "half of 50-pack", date: "2026-07-20", quantity: 0 }),
+      input({ title: "mystery bundle", date: "2026-07-20", quantity: 0 }),
     ]);
     assert.equal(rows[0].status, "excluded");
   });
@@ -337,11 +388,11 @@ describe("the historical inventory", () => {
     ]);
 
     assert.equal(rows.length, 2);
-    // The 30-pack now costs; only the half-pack still needs a decision.
-    assert.equal(rows[0].status, "unmapped");
-    assert.equal(rows[0].title, "half of 50-pack");
-    assert.equal(rows[0].quantity, 2);
-    assert.equal(rows.find((row) => row.title === "30-pack")!.status, "mapped");
+    // Both historical bundles now cost, so nothing blocks the P&L.
+    assert.equal(rows.every((row) => row.status === "mapped"), true);
+    assert.equal(rows.find((row) => row.title === "half of 50-pack")!.quantity, 2);
+    assert.equal(rows.find((row) => row.title === "half of 50-pack")!.packSize, 25);
+    assert.equal(rows.find((row) => row.title === "30-pack")!.packSize, 30);
   });
 
   it("keys an identity on what the order recorded", () => {

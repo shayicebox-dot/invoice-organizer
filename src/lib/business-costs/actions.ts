@@ -15,7 +15,7 @@ import { revalidatePath } from "next/cache";
 import { type Money, ZERO, parseDecimalToMinor } from "../money";
 import type { ExpenseCategory, ISODate } from "../types";
 import { updateSettings } from "./store";
-import { isPackQuantity } from "./pack-mapping";
+import { isAssignableBoxCount } from "./pack-mapping";
 import type { MappingKey, PackAssignment, PackMappingEntry } from "./pack-mapping";
 import type { PaymentProcessor, Recurrence, RecurringCost, ShippingRate, SkuCost } from "./types";
 
@@ -109,12 +109,16 @@ const MAPPING_KEYS: MappingKey[] = [
   "any",
 ];
 
+/**
+ * A merchant reading the actual order may assign any whole box count, not only
+ * a round ten. The per-ten rate prices a 25 as readily as a 30; the round-tens
+ * restriction exists only for counts *inferred from text*, where the evidence
+ * is a regular expression rather than a person.
+ */
 function parseAssignment(raw: string): PackAssignment | null {
   if (raw === "exclude") return "exclude";
   const size = Number.parseInt(raw, 10);
-  // Any whole multiple of ten is costable from the per-ten rate; anything else
-  // has no cost the model can derive, so it is refused rather than rounded.
-  return isPackQuantity(size) ? size : null;
+  return isAssignableBoxCount(size) ? size : null;
 }
 
 /**
@@ -127,7 +131,10 @@ function parseAssignment(raw: string): PackAssignment | null {
 export async function assignPackMapping(form: FormData): Promise<void> {
   const key = text(form, "key") as MappingKey;
   const value = text(form, "value");
-  const assignment = parseAssignment(text(form, "assignment"));
+  // An exact box count typed into the form wins over the picked size, so an
+  // unusual bundle does not need a new option in a dropdown.
+  const exact = text(form, "boxes");
+  const assignment = parseAssignment(exact === "" ? text(form, "assignment") : exact);
   const note = text(form, "note");
 
   if (!MAPPING_KEYS.includes(key) || value === "" || assignment === null) return;

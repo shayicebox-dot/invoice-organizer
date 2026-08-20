@@ -59,14 +59,31 @@ export const BOXES_PER_COST_UNIT = 10;
  */
 export const MAX_PACK_BOXES = 500;
 
-/** Whether a number is a box count this cost model can price. */
+/**
+ * Whether a box count may be **inferred from text**.
+ *
+ * Deliberately narrower than what the model can price. Bundles are sold in
+ * tens, so a round ten read out of a title is almost certainly a real bundle;
+ * "25 pack" is not, and reading it as one would be a guess. A merchant who
+ * knows a line really was 25 boxes says so explicitly — see
+ * `isAssignableBoxCount`.
+ */
 export function isPackQuantity(value: number): boolean {
   return (
-    Number.isInteger(value) &&
-    value > 0 &&
-    value <= MAX_PACK_BOXES &&
-    value % BOXES_PER_COST_UNIT === 0
+    isAssignableBoxCount(value) && value % BOXES_PER_COST_UNIT === 0
   );
+}
+
+/**
+ * Whether a box count may be **assigned by hand**.
+ *
+ * Any whole number of boxes. The rate is per ten boxes, so it prices a 25 the
+ * same way it prices a 30 — $4.50 a box — and a merchant reading the actual
+ * order is a far better source than a regular expression. The bound is the only
+ * limit: a typo should not become a five-figure cost line.
+ */
+export function isAssignableBoxCount(value: number): boolean {
+  return Number.isInteger(value) && value > 0 && value <= MAX_PACK_BOXES;
 }
 
 /** What an identity resolves to. `exclude` means "never costed", on purpose. */
@@ -350,5 +367,11 @@ export function builtinMappings(): PackMappingEntry[] {
     entry("variant_title", "10 Pack Boxes", 10, "Historical variant name"),
     entry("variant_title", "20 Pack Boxes", 20, "Historical variant name"),
     entry("variant_title", "50 Pack Boxes", 50, "Historical variant name"),
+    // Two custom lines from July 2026 (orders #3050 and #3051), each a genuine
+    // sale of 25 boxes. Text matching refuses them on sight — "half of" is a
+    // partial-quantity word and 25 is not a round ten — so the box count comes
+    // from the merchant, and the rate prices it like any other: 2.5 × $45.
+    entry("product_title", "half of 50-pack", 25, "Historical custom line — 25 boxes"),
+    entry("line_title", "half of 50-pack", 25, "Historical custom line — 25 boxes"),
   ];
 }

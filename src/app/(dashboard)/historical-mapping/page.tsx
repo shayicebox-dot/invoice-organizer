@@ -197,7 +197,8 @@ export default async function HistoricalMappingPage(props: PageProps<"/historica
             Assigning writes to the mapping table below, keyed on the most durable identifier the
             line carries — its SKU where it has one. Nothing is guessed from the catalog, so a
             product renamed or deleted later keeps costing correctly. Any whole multiple of ten
-            boxes is costable at $45 per ten, so 30 and 70 need no special handling. Use{" "}
+            boxes is read straight from a title, and an exact count you assign by hand — 25, say —
+            is priced at the same $4.50 a box. Use{" "}
             <strong className="font-semibold text-ink">Exclude</strong> for a line that should
             never carry an operational cost, such as a sample or a correction.
           </span>
@@ -256,7 +257,7 @@ export default async function HistoricalMappingPage(props: PageProps<"/historica
 
         <form
           action={assignPackMapping}
-          className="mt-4 grid gap-3 border-t border-line pt-4 md:grid-cols-4"
+          className="mt-4 grid gap-3 border-t border-line pt-4 md:grid-cols-5"
         >
           <label className="block">
             <span className="mb-1 block text-[11.5px] font-medium text-ink-secondary">
@@ -288,6 +289,18 @@ export default async function HistoricalMappingPage(props: PageProps<"/historica
               <option value="60">60 boxes</option>
               <option value="exclude">Exclude from costing</option>
             </select>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[11.5px] font-medium text-ink-secondary">
+              Or exact box count
+            </span>
+            <input
+              name="boxes"
+              type="number"
+              min={1}
+              placeholder="25"
+              className={inputClass}
+            />
           </label>
           <div className="flex items-end">
             <button

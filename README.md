@@ -205,6 +205,10 @@ change, and a bundle size introduced tomorrow prices itself. `rules` in the
 settings file holds *exceptions* — a size whose cost genuinely diverges over
 some window — and is normally empty.
 
+The rate is quoted per ten but applies **per box**, so it prices any whole box
+count: an assigned 25 costs $112.50, exactly 2.5 × $45. The arithmetic stays in
+integer minor units, so that is $112.50 and not $112.49.
+
 There is no separate COGS and fulfillment split, and nothing is read from
 Shopify's cost per item or from inventory valuation — the business knows what a
 box costs.
@@ -242,9 +246,22 @@ Two rules then disqualify a line from text matching entirely and send it to the
 merchant instead:
 
 - a **partial-quantity word** — `half of 50-pack` is not a 50-pack, and costing
-  it as one overstates cost by $225 a unit;
-- a **box count that is not a whole multiple of ten** — the rate is priced per
-  ten boxes, so `25 pack` has no cost the model can derive.
+  it as one overstates cost by $112.50 a unit;
+- a **box count that is not a whole multiple of ten** — bundles are sold in
+  tens, so a round ten read out of a title is almost certainly a real bundle
+  and `25 pack` is almost certainly not.
+
+#### Inferring a count is not the same as assigning one
+
+These two restrictions govern what may be **inferred from text**, and nothing
+else. A merchant reading the actual order may assign **any whole box count** on
+the mapping page, and the rate prices it the same way.
+
+That distinction is what makes the two July 2026 custom lines
+(`half of 50-pack`, orders #3050 and #3051) work: they are genuine sales of 25
+boxes, a count no regular expression should ever have guessed, assigned
+explicitly and costed at $112.50 each. Two of them cost $225 — the same as the
+one 50-pack they were split from, which is the arithmetic working.
 
 #### Shopify's 60-day order window
 
