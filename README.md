@@ -16,7 +16,7 @@ kind of "performance" and none of them reports profit.
 
 Ecom P&L puts them on one page:
 
-Shopify revenue · refunds · Meta Ads spend · Google Ads spend · email/SMS
+Shopify revenue · returns · Meta Ads spend · Google Ads spend · email/SMS
 platform cost · COGS · shipping and fulfillment · payment processing fees ·
 other variable expenses · allocated fixed expenses → **net profit** and
 **profit margin**.
@@ -61,7 +61,7 @@ and both ad platforms' spend, which are read live from their APIs.
 
 | Metric | Source |
 |---|---|
-| Gross sales, discounts, refunds, orders, units sold | **Live Shopify** (Overview only) |
+| Gross sales, discounts, sales reversals, taxes, orders, units sold | **Live Shopify** (Overview, P&L, Marketing, Orders) |
 | Meta Ads spend | **Live Meta** (Overview only) |
 | Google Ads spend | **Live Google Ads** (Overview) |
 | Google Ads impressions, clicks, conversions, value | **Live Google Ads** (Marketing) |
@@ -99,7 +99,7 @@ credentials in `.env.local`:
 
 | Scope | Needed for |
 |---|---|
-| `read_orders` | Revenue, refunds, orders, units |
+| `read_orders` | Revenue, returns, order edits, orders, units |
 | `read_products` | Order line items and their variants |
 | `read_inventory` | Shopify's cost per item, used for COGS |
 
@@ -124,6 +124,54 @@ connected** — a missing credential is never an error state.
 token using the **client credentials grant**, caches it in server memory, and
 refreshes it two minutes before expiry. If Shopify rejects a token mid-flight,
 the client refreshes once and retries. Requests time out after 15 seconds.
+
+### Revenue matches Shopify Analytics exactly
+
+`src/lib/shopify/sales.ts` reproduces Shopify's own Sales report rather than
+approximating it:
+
+```
+Net Sales = Gross Sales − Discounts − Sales Reversals
+```
+
+Shopify's Sales report is not a view over an order's current totals. It is a
+ledger of sale records, each stamped with the instant it happened, exposed on
+`Order.agreements.sales`. Reading that ledger is what makes the dates right:
+
+- an item added by an **order edit** is a sale on the day of the edit, even when
+  the order was placed months earlier;
+- a **return** is a reversal on the day the refund was issued, not on the day of
+  the order;
+- a return reverses the **value of the goods**, not the cash paid out, so
+  refunded tax never touches revenue;
+- **taxes** are reported separately and are never revenue.
+
+Reading that ledger for every order would blow the Admin API's per-query cost
+budget, and is unnecessary: an order that was never edited, returned, refunded
+or cancelled has exactly one agreement, written at checkout, and its order-level
+totals *are* that agreement. So the reader makes two passes — cheap order-level
+totals for everything, the full ledger only for orders that can disagree with
+them. The window is queried on `updated_at`, because an order edited inside the
+window may have been placed long before it.
+
+Verify it against the merchant's own report:
+
+```bash
+npm run verify:revenue -- 2026-08-01 2026-08-20
+```
+
+It prints the daily and period figures alongside the ShopifyQL query that
+produces the same report inside Shopify. Expected values can be asserted, and
+the command exits non-zero on any mismatch:
+
+```bash
+npm run verify:revenue -- 2026-08-01 2026-08-20 \
+  --gross=49325.00 --discounts=699.50 --reversals=470.00 \
+  --net=48155.50 --taxes=430.11 --orders=189
+```
+
+Nothing is baked in — every expected value comes from the command line, so the
+same command verifies any range.
 
 ### Security
 
@@ -231,19 +279,21 @@ non-zero if any SKU is missing a cost.
 
 ### Known limitations
 
-- **Refund timing.** `totalRefundedSet` is attributed to the order's creation
-  date, not the date the refund was issued. A refund on an older order shifts
-  that older day. Correcting this needs a separate refunds query.
+- **COGS reverses on the order's date.** Revenue reversals are dated to the
+  refund, but the pack cost model still reverses a returned unit's cost on the
+  order's date. Within a range containing both dates the totals agree; a range
+  that splits them shows the reversal on one side and its cost on the other.
 - **60-day history.** Shopify restricts apps to the last 60 days of orders
   unless `read_all_orders` is granted. Days outside the accessible window report
   zero revenue rather than mock revenue.
 - **One shop, three mock stores.** The mock dataset has three stores; the live
   integration has one. Live revenue overlays whichever store scope is selected,
   while the mock cost lines stay scoped to that store.
-- **Page cap.** A window is read in at most 25 pages of 100 orders. Beyond that
-  the banner warns that the period is incomplete.
-- **Order-level pages still mock.** The Orders page lists mock orders; only the
-  Overview aggregates are live.
+- **Page cap.** A window is read in at most 80 pages of 50 orders, and the sales
+  ledger in at most 400 batches. Beyond either, the banner warns that the period
+  is incomplete rather than reporting a short total as if it were whole.
+- **Order-level pages still mock.** The Orders page's tiles are live; the order
+  list below them is still sample detail.
 
 ---
 
@@ -478,7 +528,13 @@ npm run build      # production build
 npm run start      # serve the production build
 npm run lint       # ESLint
 npm run typecheck  # tsc --noEmit
-npm run check      # lint + typecheck + build, in that order
+npm run test       # node --test
+npm run check      # lint + typecheck + test + build, in that order
+
+npm run verify:revenue   # Shopify revenue against Shopify Analytics
+npm run verify:packs     # pack mapping against the real catalog
+npm run verify:cogs      # per-SKU cost of goods sold
+npm run verify:pl        # the full live profit ladder
 ```
 
 `.env.example` documents the configuration Phase 2 will need. Copy it to

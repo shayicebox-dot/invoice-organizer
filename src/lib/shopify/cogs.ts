@@ -17,13 +17,16 @@
  * restocked (damaged, written off) stays in COGS, because the goods are gone.
  * Shopify reports this per refund line as `restockType`.
  *
- * The reversal is attributed to the *order's* date, matching how `orders.ts`
- * attributes the refunded amount. Revenue and its cost therefore reverse on the
- * same day. Both share the same known limitation — a refund issued later lands
- * on the original order's date — and fixing it means moving both together.
+ * The reversal is attributed to the *order's* date. Revenue no longer works
+ * that way: `sales.ts` reverses on the day the refund was issued, which is what
+ * Shopify Analytics reports. Over a range containing both dates the totals
+ * agree; a range that splits them shows the revenue reversal on one side and
+ * its cost on the other. Closing that gap means dating the cost reversal from
+ * `refunds.createdAt`, which is a change to the cost model and is deliberately
+ * left alone here.
  *
  * Scopes: `read_orders`, `read_products` and `read_inventory`. The revenue
- * query in `orders.ts` still needs only `read_orders` and is untouched.
+ * reader in `sales.ts` still needs only `read_orders` and is untouched.
  */
 
 import "server-only";
@@ -31,7 +34,7 @@ import "server-only";
 import { type CurrencyCode, type Money, ZERO, add, multiply, parseDecimalToMinor, sum } from "../money";
 import type { ISODate } from "../types";
 import { ShopifyError, shopifyGraphQL } from "./client";
-import type { ShopInfo } from "./orders";
+import type { ShopInfo } from "./shop";
 
 const PAGE_SIZE = 50;
 const LINE_ITEMS_PER_ORDER = 100;

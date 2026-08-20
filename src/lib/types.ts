@@ -235,13 +235,15 @@ export interface Expense {
 
 /**
  * Materialized daily roll-up. The application reads this table; a scheduled job
- * rebuilds it from orders, refunds, marketing spend and expenses.
+ * rebuilds it from orders, returns, marketing spend and expenses.
  */
 export interface DailyFinancialsRow extends FinancialRecordBase {
   id: UUID;
   grossSales: Money;
   discounts: Money;
-  refunds: Money;
+  salesReversals: Money;
+  /** Reported alongside revenue, never part of it. */
+  taxes: Money;
   cogs: Money;
   shipping: Money;
   paymentFees: Money;

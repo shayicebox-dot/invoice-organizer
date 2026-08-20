@@ -1,11 +1,11 @@
 /**
  * Overlaying real Shopify data onto the mock P&L.
  *
- * This is the one place where live and mock data meet. It replaces exactly
- * five fields per day — gross sales, discounts, refunds, order count and units
- * sold — and leaves every cost line untouched. COGS, shipping, payment fees,
- * ad spend, email platform cost and expenses all remain mock until their own
- * integrations land.
+ * This is the one place where live and mock data meet. It replaces the revenue
+ * fields for each day — gross sales, discounts, sales reversals, taxes, order
+ * count and units sold — and leaves every cost line untouched. COGS, shipping,
+ * payment fees, ad spend, email platform cost and expenses all remain mock
+ * until their own integrations land.
  *
  * A failure here is never fatal: the dashboard falls back to the mock series
  * and reports why, so a Shopify outage degrades the numbers rather than the
@@ -19,12 +19,8 @@ import { ZERO } from "../money";
 import type { ISODate } from "../types";
 import { ShopifyError } from "../shopify/client";
 import { getShopifyConfig, missingShopifyEnvNames } from "../shopify/config";
-import {
-  type ShopInfo,
-  type ShopifyDailySales,
-  fetchShopInfo,
-  fetchShopifyDailySales,
-} from "../shopify/orders";
+import { type ShopInfo, fetchShopInfo } from "../shopify/shop";
+import { type ShopifyDailySales, fetchShopifySales } from "../shopify/sales";
 
 export type ShopifyConnectionState = "connected" | "not_configured" | "error";
 
@@ -39,9 +35,11 @@ export interface ShopifyStatus {
   /** Missing environment variable names, when unconfigured. */
   missing: string[];
   lastSyncedAt: string | null;
-  /** True when the order page cap was hit and the window is incomplete. */
+  /** True when a page cap was hit and the window is incomplete. */
   truncated: boolean;
   ordersFetched: number;
+  /** Orders that needed the full Shopify sales ledger (edited or returned). */
+  ledgerOrders: number;
 }
 
 export const NOT_CONFIGURED: ShopifyStatus = {
@@ -54,6 +52,7 @@ export const NOT_CONFIGURED: ShopifyStatus = {
   lastSyncedAt: null,
   truncated: false,
   ordersFetched: 0,
+  ledgerOrders: 0,
 };
 
 interface CacheEntry {
@@ -107,7 +106,11 @@ export async function loadShopifySales(
 
   try {
     const shop = await getShopInfo();
-    const { days, orderCount, truncated } = await fetchShopifyDailySales(start, end, shop);
+    const { days, ordersScanned, ledgerOrders, truncated } = await fetchShopifySales(
+      start,
+      end,
+      shop,
+    );
 
     const status: ShopifyStatus = {
       state: "connected",
@@ -118,7 +121,8 @@ export async function loadShopifySales(
       missing: [],
       lastSyncedAt: new Date().toISOString(),
       truncated,
-      ordersFetched: orderCount,
+      ordersFetched: ordersScanned,
+      ledgerOrders,
     };
 
     cache.set(key, { fetchedAt: Date.now(), days, status });
@@ -156,7 +160,8 @@ export function applyShopifySales(
       ...day,
       grossSales: live ? live.grossSales : ZERO,
       discounts: live ? live.discounts : ZERO,
-      refunds: live ? live.refunds : ZERO,
+      salesReversals: live ? live.salesReversals : ZERO,
+      taxes: live ? live.taxes : ZERO,
       orders: live ? live.orders : 0,
       unitsSold: live ? live.unitsSold : 0,
     } satisfies DailyFinancials;
@@ -191,7 +196,8 @@ export async function probeShopifyStatus(): Promise<ShopifyStatus> {
 export const LIVE_FIELDS = [
   "Gross sales",
   "Discounts",
-  "Refunds",
+  "Sales reversals",
+  "Taxes",
   "Orders",
   "Units sold",
 ] as const;

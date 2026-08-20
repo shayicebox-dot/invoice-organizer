@@ -108,7 +108,8 @@ describe("applyGoogleAdsSpend", () => {
     currency: "USD",
     grossSales: fromMajor(10_000),
     discounts: fromMajor(500),
-    refunds: fromMajor(200),
+    salesReversals: fromMajor(200),
+    taxes: fromMajor(0),
     cogs: fromMajor(2_000),
     shipping: fromMajor(800),
     paymentFees: fromMajor(300),
@@ -171,7 +172,7 @@ describe("applyGoogleAdsSpend", () => {
   it("leaves Shopify revenue untouched", () => {
     assert.equal(toMinor(after.grossSales), toMinor(before.grossSales));
     assert.equal(toMinor(after.discounts), toMinor(before.discounts));
-    assert.equal(toMinor(after.refunds), toMinor(before.refunds));
+    assert.equal(toMinor(after.salesReversals), toMinor(before.salesReversals));
     assert.equal(after.orders, before.orders);
   });
 
@@ -228,7 +229,8 @@ describe("end-to-end: the verified range through summarize()", () => {
       currency: "USD",
       grossSales: fromMajor(1_000),
       discounts: fromMinor(0),
-      refunds: fromMinor(0),
+      salesReversals: fromMinor(0),
+      taxes: fromMinor(0),
       cogs: fromMajor(200),
       shipping: fromMinor(0),
       paymentFees: fromMinor(0),

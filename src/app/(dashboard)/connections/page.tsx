@@ -102,7 +102,7 @@ export default async function ConnectionsPage() {
             <strong className="font-semibold text-ink">
               {liveProviders.join(" and ")} {liveProviders.length > 1 ? "are" : "is"} live.
             </strong>{" "}
-            Shopify supplies revenue, refunds, orders and units; Meta Ads and Google Ads supply
+            Shopify supplies revenue, sales reversals, orders and units; Meta Ads and Google Ads supply
             ad spend. All credentials are read from the server environment and none is ever sent
             to the browser. Every other provider below is still a placeholder.
           </span>

@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatTile } from "@/components/dashboard/kpi-cards";
 import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { EmptyRow, TableFrame, Td, Th } from "@/components/ui/table";
-import { getOrders, getRangeReport, getStores } from "@/lib/data";
+import { getLiveRangeReport, getOrders, getStores } from "@/lib/data";
 import { percentChange } from "@/lib/finance";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { resolveViewParams } from "@/lib/view-params";
@@ -37,7 +37,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
   const view = resolveViewParams(searchParams, stores);
 
   const [report, orders] = await Promise.all([
-    getRangeReport(view.scope, view.range, view.previous),
+    getLiveRangeReport(view.scope, view.range, view.previous),
     getOrders(view.scope, view.range.start, view.range.end, ORDER_LIMIT),
   ]);
 
@@ -49,7 +49,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
     <div className="space-y-6">
       <PageHeader
         title="Orders"
-        description={`${view.scopeLabel} · ${view.range.label}. Contribution is what each order left after product, shipping and processing costs.`}
+        description={`${view.scopeLabel} · ${view.range.label}. The tiles are live Shopify totals; the list below is still sample order detail.`}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -75,9 +75,9 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
           deltaCaption={comparison}
         />
         <StatTile
-          label="Refunds"
-          value={formatMoney(summary.refunds, summary.currency)}
-          delta={percentChange(summary.refunds, previous.refunds)}
+          label="Sales reversals"
+          value={formatMoney(summary.salesReversals, summary.currency)}
+          delta={percentChange(summary.salesReversals, previous.salesReversals)}
           deltaCaption={comparison}
           higherIsBetter={false}
         />

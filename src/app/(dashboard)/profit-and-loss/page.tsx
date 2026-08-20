@@ -30,7 +30,7 @@ export const metadata: Metadata = { title: "Profit & Loss" };
 interface StatementLine {
   label: string;
   amount: Money;
-  kind: "revenue" | "cost" | "subtotal" | "total";
+  kind: "revenue" | "cost" | "subtotal" | "total" | "memo";
   note?: string;
   /** Where the figure came from. Subtotals inherit from their inputs. */
   source?: "live" | "manual-real" | "mock" | "missing" | "not-configured";
@@ -49,7 +49,7 @@ function buildStatement(
   return [
     { label: "Gross sales", amount: summary.grossSales, kind: "revenue", note: "Shopify, before discounts", source: revenueSource },
     { label: "Discounts", amount: summary.discounts, kind: "cost", source: revenueSource },
-    { label: "Refunds", amount: summary.refunds, kind: "cost", source: revenueSource },
+    { label: "Sales reversals", amount: summary.salesReversals, kind: "cost", note: "Returns, dated to the refund", source: revenueSource },
     { label: "Net sales", amount: summary.netSales, kind: "subtotal" },
 
     { label: "Product COGS", amount: summary.cogs, kind: "cost", note: "Pack cost model × Shopify line items", source: tag(costs.sources.cogs) },
@@ -69,6 +69,11 @@ function buildStatement(
       ? []
       : [{ label: "Fixed expenses", amount: summary.fixedExpenses, kind: "cost" as const, note: "Allocated across the period", source: tag(costs.sources.otherExpenses) }]),
     { label: "Net profit", amount: summary.netProfit, kind: "total", note: "Operating profit" },
+
+    // Collected on behalf of the authorities, so it is never revenue and never
+    // a cost. Shown only so the statement reconciles against Shopify's own
+    // Total sales, which does include it.
+    { label: "Taxes collected", amount: summary.taxes, kind: "memo", note: "Remitted, not revenue", source: revenueSource },
   ];
 }
 
@@ -127,6 +132,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
                   const change = percentChange(line.amount, previousStatement[index].amount);
                   const isTotal = line.kind === "total";
                   const isSubtotal = line.kind === "subtotal";
+                  const isMemo = line.kind === "memo";
 
                   return (
                     <tr
@@ -134,6 +140,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
                       className={cn(
                         isSubtotal && "bg-surface-muted",
                         isTotal && "bg-surface-sunken",
+                        isMemo && "border-t border-hairline",
                       )}
                     >
                       <Td
@@ -141,6 +148,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
                           "pr-6",
                           (isSubtotal || isTotal) && "font-semibold",
                           line.kind === "cost" && "pl-4 text-ink-secondary",
+                          isMemo && "text-ink-muted",
                         )}
                       >
                         {line.kind === "cost" ? "− " : ""}
@@ -165,7 +173,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
                         {formatMoney(line.amount, report.summary.currency)}
                       </Td>
                       <Td align="right" numeric className="text-ink-secondary">
-                        {formatPercent(share)}
+                        {isMemo ? "—" : formatPercent(share)}
                       </Td>
                       <Td
                         align="right"
@@ -178,7 +186,7 @@ export default async function ProfitAndLossPage(props: PageProps<"/profit-and-lo
                               : "text-negative",
                         )}
                       >
-                        {change === null
+                        {change === null || isMemo
                           ? "—"
                           : `${change > 0 ? "+" : "−"}${formatPercent(Math.abs(change))}`}
                       </Td>

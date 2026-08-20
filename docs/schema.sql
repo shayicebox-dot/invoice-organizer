@@ -316,7 +316,7 @@ create index on expenses (organization_id, type, date);
 -- What the dashboard reads. Rebuilt by a scheduled job from the tables
 -- above; never written by the UI. One row per store per day.
 --
--- Net Sales           = gross_sales - discounts - refunds
+-- Net Sales           = gross_sales - discounts - sales_reversals
 -- Contribution Profit = Net Sales - cogs - shipping - payment_fees
 --                       - (meta + google + email) - variable_expenses
 -- Operating Profit    = Contribution Profit - fixed_expenses
@@ -329,7 +329,11 @@ create table daily_financials (
 
   gross_sales_minor        bigint      not null default 0,
   discounts_minor          bigint      not null default 0,
-  refunds_minor            bigint      not null default 0,
+  -- Value of items removed from orders, net of the discount removed with them,
+  -- dated to the day the refund was issued. Shopify calls this sales reversals.
+  sales_reversals_minor    bigint      not null default 0,
+  -- Collected on behalf of the authorities. Reported, never revenue.
+  taxes_minor              bigint      not null default 0,
 
   cogs_minor               bigint      not null default 0,
   shipping_minor           bigint      not null default 0,
@@ -357,7 +361,7 @@ create index on daily_financials (organization_id, date);
 create view daily_financials_computed as
 select
   df.*,
-  df.gross_sales_minor - df.discounts_minor - df.refunds_minor
+  df.gross_sales_minor - df.discounts_minor - df.sales_reversals_minor
     as net_sales_minor,
   df.meta_ad_spend_minor + df.google_ad_spend_minor
     as ad_spend_minor,
@@ -367,12 +371,12 @@ select
     + df.meta_ad_spend_minor + df.google_ad_spend_minor + df.email_spend_minor
     + df.variable_expenses_minor
     as total_variable_costs_minor,
-  (df.gross_sales_minor - df.discounts_minor - df.refunds_minor)
+  (df.gross_sales_minor - df.discounts_minor - df.sales_reversals_minor)
     - (df.cogs_minor + df.shipping_minor + df.payment_fees_minor
        + df.meta_ad_spend_minor + df.google_ad_spend_minor + df.email_spend_minor
        + df.variable_expenses_minor)
     as contribution_profit_minor,
-  (df.gross_sales_minor - df.discounts_minor - df.refunds_minor)
+  (df.gross_sales_minor - df.discounts_minor - df.sales_reversals_minor)
     - (df.cogs_minor + df.shipping_minor + df.payment_fees_minor
        + df.meta_ad_spend_minor + df.google_ad_spend_minor + df.email_spend_minor
        + df.variable_expenses_minor + df.fixed_expenses_minor)

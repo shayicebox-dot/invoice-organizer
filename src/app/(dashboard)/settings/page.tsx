@@ -43,7 +43,7 @@ export default async function SettingsPage() {
           <dl className="mt-4 space-y-3 text-[12.5px]">
             <Definition
               term="Net Sales"
-              detail="Gross sales − discounts − refunds. Taxes are collected on behalf of the authorities and are excluded from revenue."
+              detail="Gross sales − discounts − sales reversals, exactly as Shopify Analytics defines them. Taxes are collected on behalf of the authorities and are excluded from revenue."
             />
             <Definition
               term="Contribution Profit"

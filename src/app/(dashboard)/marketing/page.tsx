@@ -6,7 +6,7 @@ import { StatTile } from "@/components/dashboard/kpi-cards";
 import { EmptyRow, TableFrame, Td, Th } from "@/components/ui/table";
 import { InfoIcon } from "@/components/ui/icons";
 import { SourceTag } from "@/components/ui/source-tag";
-import { getLiveChannelPerformance, getRangeReport, getStores } from "@/lib/data";
+import { getLiveChannelPerformance, getLiveRangeReport, getStores } from "@/lib/data";
 import { percentChange } from "@/lib/finance";
 import { type Money, formatMoney, formatMultiple, formatNumber, formatPercent, ratio } from "@/lib/money";
 import { resolveViewParams } from "@/lib/view-params";
@@ -20,7 +20,7 @@ export default async function MarketingPage(props: PageProps<"/marketing">) {
   const view = resolveViewParams(searchParams, stores);
 
   const [report, channelResult] = await Promise.all([
-    getRangeReport(view.scope, view.range, view.previous),
+    getLiveRangeReport(view.scope, view.range, view.previous),
     getLiveChannelPerformance(view.scope, view.range.start, view.range.end),
   ]);
   const { channels, googleAds } = channelResult;
@@ -38,7 +38,7 @@ export default async function MarketingPage(props: PageProps<"/marketing">) {
     <div className="space-y-6">
       <PageHeader
         title="Marketing"
-        description={`${view.scopeLabel} · ${view.range.label}. Ad platforms are cost centres here — revenue always comes from Shopify.`}
+        description={`${view.scopeLabel} · ${view.range.label}. Ad platforms are cost centres here — ROAS and MER divide Shopify net sales by spend.`}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

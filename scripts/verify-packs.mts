@@ -35,7 +35,7 @@ if (existsSync(envPath)) {
 }
 
 const { fetchShopifyCogs } = await import("../src/lib/shopify/cogs");
-const { fetchShopInfo } = await import("../src/lib/shopify/orders");
+const { fetchShopInfo } = await import("../src/lib/shopify/shop");
 const { getShopifyConfig } = await import("../src/lib/shopify/config");
 const { getGrantedScopes } = await import("../src/lib/shopify/client");
 const { readSettings } = await import("../src/lib/business-costs/store");

@@ -55,7 +55,13 @@ export function MoneyFlow({
       source: revenueSource,
     },
     { label: "Discounts", amount: summary.discounts, direction: "out", source: revenueSource },
-    { label: "Refunds", amount: summary.refunds, direction: "out", source: revenueSource },
+    {
+      label: "Sales reversals",
+      amount: summary.salesReversals,
+      direction: "out",
+      note: "Returns, dated to the refund",
+      source: revenueSource,
+    },
   ];
 
   const outflows: FlowLine[] = [

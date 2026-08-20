@@ -45,13 +45,33 @@ reads. Recomputing it can never corrupt the underlying history.
 | `expenses` | one per expense | Fixed (recurring) and variable (dated) costs. |
 | `daily_financials` | store × day | Materialized roll-up. What the dashboard reads. |
 
+### Revenue follows Shopify Analytics, to the cent
+
+The three revenue columns on `daily_financials` are Shopify's own definitions,
+not an approximation of them:
+
+| Column | Shopify Analytics metric | Definition |
+|---|---|---|
+| `gross_sales_minor` | Gross sales | Line value before discounts and returns. Excludes taxes, shipping, duties and fees. |
+| `discounts_minor` | Discounts | Discounts allocated to those sales. |
+| `sales_reversals_minor` | Sales reversals | Value of items removed from orders, net of the discount removed with them. |
+| `taxes_minor` | Taxes | Reported for reconciliation. Never revenue. |
+
+The dates matter as much as the amounts. Shopify's Sales report is a ledger of
+sale records, each stamped with the instant it happened, so a line item added
+by an **order edit** is a sale on the day of the edit even though the order was
+placed months earlier, and a **return** is a reversal on the day the refund was
+issued rather than on the day of the order. `src/lib/shopify/sales.ts` reads
+that ledger directly through `Order.agreements.sales`, which is the same data
+Shopify's own report is built from.
+
 ## The profit ladder
 
 Defined once in `src/lib/finance.ts` and once as the `daily_financials_computed`
 view, so the application and the database agree by construction.
 
 ```
-Net Sales            = Gross Sales − Discounts − Refunds
+Net Sales            = Gross Sales − Discounts − Sales Reversals
 
 Contribution Profit  = Net Sales
                        − COGS
@@ -69,8 +89,10 @@ number the product exists to get right.
 ### What is deliberately excluded from revenue
 
 - **Sales tax / VAT.** Collected on behalf of an authority and remitted. It is
-  stored on `orders.taxes_minor` for reconciliation, and never counted as
-  revenue.
+  stored on `orders.taxes_minor` and `daily_financials.taxes_minor` for
+  reconciliation, and never counted as revenue.
+- **Shipping charged to the customer.** Part of Shopify's Total sales, but not
+  of Net Sales, and its cost is accounted for separately.
 - **Platform-attributed revenue.** Meta and Google each claim the same order.
   Adding them would double- or triple-count. Stored, displayed on the Marketing
   page, never summed into the P&L.
@@ -124,9 +146,11 @@ Each connector writes only its own tables. `daily_financials` is rebuilt for any
 date touched by a sync — an upsert on `(store_id, date)`, so re-running a sync
 is idempotent.
 
-Late-arriving data is normal: refunds land days after the order, ad platforms
-restate spend for up to 72 hours. The rebuild always recomputes a trailing
-window rather than only the current day.
+Late-arriving data is normal: refunds land days after the order, order edits
+land later still, ad platforms restate spend for up to 72 hours. The rebuild
+always recomputes a trailing window rather than only the current day, and the
+Shopify reader queries the window on `updated_at` rather than `created_at` so
+an old order touched inside the window is not missed.
 
 ## How the mock layer maps on
 

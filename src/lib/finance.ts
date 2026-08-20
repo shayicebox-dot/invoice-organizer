@@ -8,7 +8,7 @@
  *
  * The ladder, in order:
  *
- *   Net Sales           = Gross Sales - Discounts - Refunds
+ *   Net Sales           = Gross Sales - Discounts - Sales Reversals
  *   Contribution Profit = Net Sales
  *                         - COGS
  *                         - Shipping & Fulfillment
@@ -22,11 +22,19 @@
 
 import { type CurrencyCode, type Money, ZERO, add, ratio, subtract, sum } from "./money";
 
-/** Everything that increases or offsets revenue for a period. */
+/**
+ * Everything that increases or offsets revenue for a period.
+ *
+ * These are Shopify Analytics' definitions, so the dashboard's Net Sales is the
+ * same number the merchant sees in their own Sales report. Taxes are collected
+ * on behalf of the authorities and never appear here.
+ */
 export interface RevenueInputs {
+  /** Line value before discounts and returns, excluding taxes and shipping. */
   grossSales: Money;
   discounts: Money;
-  refunds: Money;
+  /** Value of items removed from orders, net of the discount removed with them. */
+  salesReversals: Money;
 }
 
 /** Costs that move with volume. */
@@ -47,9 +55,9 @@ export interface FixedCostInputs {
 
 export interface ProfitInputs extends RevenueInputs, VariableCostInputs, FixedCostInputs {}
 
-/** Net Sales = Gross Sales - Discounts - Refunds. */
+/** Net Sales = Gross Sales - Discounts - Sales Reversals. */
 export function netSales(input: RevenueInputs): Money {
-  return subtract(subtract(input.grossSales, input.discounts), input.refunds);
+  return subtract(subtract(input.grossSales, input.discounts), input.salesReversals);
 }
 
 /** Sum of every volume-driven cost. */
@@ -104,6 +112,8 @@ export interface DailyFinancials extends ProfitInputs {
   currency: CurrencyCode;
   orders: number;
   unitsSold: number;
+  /** Collected on behalf of the authorities. Reported, never counted as revenue. */
+  taxes: Money;
   /** Paid ad spend only — Meta + Google. */
   adSpend: Money;
   /** Email/SMS platform cost (Klaviyo, Omnisend, Mailchimp). */
@@ -118,6 +128,7 @@ export interface PeriodSummary extends ProfitInputs {
   dayCount: number;
   orders: number;
   unitsSold: number;
+  taxes: Money;
   adSpend: Money;
   emailSpend: Money;
   metaAdSpend: Money;
@@ -142,7 +153,8 @@ export interface PeriodSummary extends ProfitInputs {
 const EMPTY_TOTALS = {
   grossSales: ZERO,
   discounts: ZERO,
-  refunds: ZERO,
+  salesReversals: ZERO,
+  taxes: ZERO,
   cogs: ZERO,
   shipping: ZERO,
   paymentFees: ZERO,
@@ -167,7 +179,8 @@ export function summarize(
   for (const day of days) {
     totals.grossSales = add(totals.grossSales, day.grossSales);
     totals.discounts = add(totals.discounts, day.discounts);
-    totals.refunds = add(totals.refunds, day.refunds);
+    totals.salesReversals = add(totals.salesReversals, day.salesReversals);
+    totals.taxes = add(totals.taxes, day.taxes);
     totals.cogs = add(totals.cogs, day.cogs);
     totals.shipping = add(totals.shipping, day.shipping);
     totals.paymentFees = add(totals.paymentFees, day.paymentFees);

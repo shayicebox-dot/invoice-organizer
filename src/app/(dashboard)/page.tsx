@@ -117,7 +117,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             delta={percentChange(summary.netSales, previous.netSales)}
             deltaCaption={comparison}
             source={revenueSource}
-            footnote={`Gross ${formatMoney(summary.grossSales, summary.currency, { whole: true })} less discounts and refunds`}
+            footnote={`Gross ${formatMoney(summary.grossSales, summary.currency, { whole: true })} less discounts and sales reversals`}
           />
           <StatTile
             label="Ad Spend"

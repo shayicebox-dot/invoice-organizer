@@ -21,7 +21,7 @@ import { readSettings } from "../business-costs/store";
 import type { BusinessCostSettings, CostIssue, CostSourceMap } from "../business-costs/types";
 import { netSales } from "../finance";
 import { getShopifyConfig } from "../shopify/config";
-import { fetchShopInfo } from "../shopify/orders";
+import { fetchShopInfo } from "../shopify/shop";
 import { type ShopifyCogsResult, fetchShopifyCogs } from "../shopify/cogs";
 import { costLine } from "../business-costs/pack-model";
 import { getGrantedScopes } from "../shopify/client";

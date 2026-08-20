@@ -36,7 +36,7 @@ export function DataSourceBanner({
 
   const liveFields: string[] = [];
   if (shopify.state === "connected") {
-    liveFields.push("gross sales, discounts, refunds, orders and units");
+    liveFields.push("gross sales, discounts, sales reversals, taxes, orders and units");
   }
   if (meta.state === "connected") liveFields.push("Meta Ads spend");
   if (googleAds.state === "connected") liveFields.push("Google Ads spend");

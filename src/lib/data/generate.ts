@@ -96,7 +96,8 @@ export interface MockDataset {
 interface DayAccumulator {
   grossSales: Money;
   discounts: Money;
-  refunds: Money;
+  salesReversals: Money;
+  taxes: Money;
   cogs: Money;
   shipping: Money;
   paymentFees: Money;
@@ -109,7 +110,8 @@ function emptyAccumulator(): DayAccumulator {
   return {
     grossSales: ZERO,
     discounts: ZERO,
-    refunds: ZERO,
+    salesReversals: ZERO,
+    taxes: ZERO,
     cogs: ZERO,
     shipping: ZERO,
     paymentFees: ZERO,
@@ -382,6 +384,7 @@ export function generateDataset(anchorDate: ISODate): MockDataset {
 
         day.grossSales = add(day.grossSales, generated.order.grossSales);
         day.discounts = add(day.discounts, generated.order.discounts);
+        day.taxes = add(day.taxes, generated.order.taxes);
         day.cogs = add(day.cogs, generated.cogs);
         day.shipping = add(day.shipping, generated.order.shippingCost);
         day.paymentFees = add(day.paymentFees, generated.order.paymentFees);
@@ -423,7 +426,7 @@ export function generateDataset(anchorDate: ISODate): MockDataset {
         });
 
         candidate.order.financialStatus = isPartial ? "partially_refunded" : "refunded";
-        day.refunds = add(day.refunds, amount);
+        day.salesReversals = add(day.salesReversals, amount);
         day.cogs = subtract(day.cogs, restocked);
         refunded = add(refunded, amount);
       }
@@ -534,7 +537,8 @@ export function generateDataset(anchorDate: ISODate): MockDataset {
         currency: profile.store.currency,
         grossSales: day.grossSales,
         discounts: day.discounts,
-        refunds: day.refunds,
+        salesReversals: day.salesReversals,
+        taxes: day.taxes,
         cogs: day.cogs,
         shipping: day.shipping,
         paymentFees: day.paymentFees,
@@ -583,7 +587,8 @@ export function mergeDailySeries(
       currency: first?.currency ?? "USD",
       grossSales: sum(rows.map((row) => row.grossSales)),
       discounts: sum(rows.map((row) => row.discounts)),
-      refunds: sum(rows.map((row) => row.refunds)),
+      salesReversals: sum(rows.map((row) => row.salesReversals)),
+      taxes: sum(rows.map((row) => row.taxes)),
       cogs: sum(rows.map((row) => row.cogs)),
       shipping: sum(rows.map((row) => row.shipping)),
       paymentFees: sum(rows.map((row) => row.paymentFees)),
