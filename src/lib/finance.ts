@@ -122,6 +122,38 @@ export interface DailyFinancials extends ProfitInputs {
   googleAdSpend: Money;
 }
 
+/**
+ * A day with nothing on it yet.
+ *
+ * Every reporting range is built from these, one per calendar day, before any
+ * source is merged in. That ordering is the point: the requested range decides
+ * which days exist, and a source that has nothing to say about a day leaves it
+ * at zero rather than deleting it. A day that is absent from a series cannot be
+ * distinguished from a day that never happened.
+ */
+export function emptyDay(date: string, currency: CurrencyCode = "USD"): DailyFinancials {
+  return {
+    date,
+    currency,
+    orders: 0,
+    unitsSold: 0,
+    grossSales: ZERO,
+    discounts: ZERO,
+    salesReversals: ZERO,
+    taxes: ZERO,
+    cogs: ZERO,
+    shipping: ZERO,
+    paymentFees: ZERO,
+    marketingSpend: ZERO,
+    variableExpenses: ZERO,
+    fixedExpenses: ZERO,
+    adSpend: ZERO,
+    emailSpend: ZERO,
+    metaAdSpend: ZERO,
+    googleAdSpend: ZERO,
+  };
+}
+
 /** Period totals, plus the derived measures every screen needs. */
 export interface PeriodSummary extends ProfitInputs {
   currency: CurrencyCode;

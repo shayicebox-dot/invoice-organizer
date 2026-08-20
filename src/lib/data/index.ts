@@ -13,11 +13,18 @@
 
 import "server-only";
 
-import { type DailyFinancials, type PeriodSummary, summarize } from "../finance";
-import { type Money, ZERO, add, ratio, sum } from "../money";
+import {
+  type DailyFinancials,
+  type PeriodSummary,
+  emptyDay,
+  summarize,
+} from "../finance";
+import { type CurrencyCode, type Money, ZERO, add, ratio, sum } from "../money";
 import {
   type DateRange,
+  addDays,
   endOfMonth,
+  enumerateDates,
   enumerateMonths,
   formatMonth,
   today,
@@ -66,6 +73,7 @@ import {
   type LiveSourceStatus,
   assessCompleteness,
 } from "./completeness";
+import { assessDayCoverage } from "./day-coverage";
 import {
   type BusinessCostStatus,
   type HistoricalMapping,
@@ -490,18 +498,32 @@ export async function getLiveDailyFinancials(
   start: ISODate,
   end: ISODate,
 ): Promise<{ days: DailyFinancials[]; status: LiveSourceStatus }> {
+  const currency = currencyForScope(scope);
+
   const [mockDays, shopifyResult] = await Promise.all([
     getDailyFinancials(scope, start, end),
     loadShopifySales(start, end),
   ]);
 
-  const currency = mockDays[0]?.currency ?? "USD";
   const [metaResult, googleResult] = await Promise.all([
     loadMetaSpend(start, end, currency),
     loadGoogleAdsMetrics(start, end, currency),
   ]);
 
-  let days = mockDays;
+  // The requested range is the spine. Every calendar day in it gets a record
+  // before any source is consulted, so a source with nothing to say about a day
+  // leaves a zero rather than removing the day.
+  //
+  // This used to start from the mock series, which spans a fixed trailing
+  // window. Every overlay below is a `map` over the series it is given, so a
+  // requested day the mock generator had never produced had no row for live
+  // data to land in — and seven months of real Shopify, Meta and Google data
+  // were read and then silently dropped. The scaffold decided which days
+  // existed; now the caller's range does, and the scaffold is one overlay
+  // among several.
+  let days = enumerateDates(start, end).map((date) => emptyDay(date, currency));
+  days = applyMockScaffold(days, mockDays);
+
   if (shopifyResult.days) days = applyShopifySales(days, shopifyResult.days);
   if (metaResult.days) days = applyMetaSpend(days, metaResult.days);
   if (googleResult.metrics) days = applyGoogleAdsSpend(days, googleResult.metrics);
@@ -517,8 +539,34 @@ export async function getLiveDailyFinancials(
       meta: metaResult.status,
       googleAds: googleResult.status,
       costs: costs.status,
+      coverage: assessDayCoverage(start, end, costs.days),
     },
   };
+}
+
+/** Reporting currency for a scope, without needing a data row to read it off. */
+function currencyForScope(scope: StoreScope): CurrencyCode {
+  if (scope === ALL_STORES) return ORGANIZATION.baseCurrency;
+  return STORES.find((store) => store.id === scope)?.currency ?? ORGANIZATION.baseCurrency;
+}
+
+/**
+ * Merge the generated demo series onto the real day list.
+ *
+ * Purely additive, and only where a generated day exists. It supplies the cost
+ * lines that have no real source configured yet — those are labelled `mock` in
+ * the UI — and it never adds, removes or reorders a day.
+ */
+function applyMockScaffold(
+  days: readonly DailyFinancials[],
+  mockDays: readonly DailyFinancials[],
+): DailyFinancials[] {
+  if (mockDays.length === 0) return [...days];
+  const byDate = new Map(mockDays.map((day) => [day.date, day]));
+  return days.map((day) => {
+    const mock = byDate.get(day.date);
+    return mock ? { ...mock, date: day.date, currency: day.currency } : day;
+  });
 }
 
 export interface LiveRangeReport extends RangeReport {
@@ -558,32 +606,22 @@ export async function getLiveRangeReport(
   };
 }
 
-/** Trailing window for the Overview charts, with live revenue overlaid. */
+/**
+ * Trailing window for the Overview charts, with live data overlaid.
+ *
+ * The window comes from the arguments, not from whatever the generator happens
+ * to hold — a chart with a day quietly missing is a chart that lies about a
+ * trend without ever looking wrong.
+ */
 export async function getLiveTrailingDays(
   scope: StoreScope,
   end: ISODate,
   days: number,
 ): Promise<DailyFinancials[]> {
-  const mockDays = await getTrailingDays(scope, end, days);
-  if (mockDays.length === 0) return mockDays;
-
-  const from = mockDays[0].date;
-  const to = mockDays[mockDays.length - 1].date;
-  const currency = mockDays[0].currency;
-
-  const [shopifyResult, metaResult, googleResult] = await Promise.all([
-    loadShopifySales(from, to),
-    loadMetaSpend(from, to, currency),
-    loadGoogleAdsMetrics(from, to, currency),
-  ]);
-
-  let result = mockDays;
-  if (shopifyResult.days) result = applyShopifySales(result, shopifyResult.days);
-  if (metaResult.days) result = applyMetaSpend(result, metaResult.days);
-  if (googleResult.metrics) result = applyGoogleAdsSpend(result, googleResult.metrics);
-
-  const costs = await applyBusinessCosts(result, from, to);
-  return costs.days;
+  if (days <= 0) return [];
+  const from = addDays(end, -(days - 1));
+  const result = await getLiveDailyFinancials(scope, from, end);
+  return result.days;
 }
 
 /** One calendar month of the year view. */

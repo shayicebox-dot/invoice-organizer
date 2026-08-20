@@ -20,6 +20,8 @@ import {
 } from "../src/lib/date-range";
 import { assessCompleteness } from "../src/lib/data/completeness";
 import type { LiveSourceStatus } from "../src/lib/data/completeness";
+import { assessDayCoverage } from "../src/lib/data/day-coverage";
+import { emptyDay } from "../src/lib/finance";
 
 describe("long-range presets", () => {
   it("runs year to date from January 1", () => {
@@ -125,6 +127,11 @@ function status(over: Partial<LiveSourceStatus> = {}): LiveSourceStatus {
       historyLimit: null,
       updatedAt: new Date(0).toISOString(),
     },
+    coverage: assessDayCoverage("2026-01-01", "2026-01-03", [
+      { date: "2026-01-01" },
+      { date: "2026-01-02" },
+      { date: "2026-01-03" },
+    ]),
     ...over,
   } as LiveSourceStatus;
 }
@@ -192,5 +199,106 @@ describe("the profit gate", () => {
     assert.equal(result.gaps.length, 3);
     assert.equal(result.reasons.length, 3);
     assert.ok(result.reasons.some((reason) => reason.includes("Meta rejected the token.")));
+  });
+});
+
+
+// --- Day coverage ----------------------------------------------------------
+
+describe("day coverage", () => {
+  const range = (start: string, end: string) =>
+    enumerateDatesFor(start, end).map((date) => ({ date }));
+
+  function enumerateDatesFor(start: string, end: string): string[] {
+    const dates: string[] = [];
+    for (const day of emptyRangeDates(start, end)) dates.push(day);
+    return dates;
+  }
+
+  function emptyRangeDates(start: string, end: string): string[] {
+    const out: string[] = [];
+    let cursor = start;
+    while (cursor <= end) {
+      out.push(cursor);
+      const next = new Date(`${cursor}T00:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      cursor = next.toISOString().slice(0, 10);
+    }
+    return out;
+  }
+
+  it("passes when every requested day came back exactly once", () => {
+    const coverage = assessDayCoverage("2026-01-01", "2026-01-31", range("2026-01-01", "2026-01-31"));
+    assert.equal(coverage.complete, true);
+    assert.equal(coverage.requested, 31);
+    assert.equal(coverage.returned, 31);
+    assert.equal(coverage.firstDate, "2026-01-01");
+    assert.equal(coverage.lastDate, "2026-01-31");
+  });
+
+  it("catches the truncation that hid seven months", () => {
+    // The exact shape of the bug: a year requested, only the trailing window
+    // returned. Every total computed from it reconciles with every other one.
+    const coverage = assessDayCoverage(
+      "2026-01-01",
+      "2026-08-20",
+      range("2026-04-23", "2026-08-20"),
+    );
+    assert.equal(coverage.complete, false);
+    assert.equal(coverage.requested, 232);
+    assert.equal(coverage.returned, 120);
+    assert.equal(coverage.missingCount, 112);
+    assert.equal(coverage.firstDate, "2026-04-23");
+    assert.equal(coverage.missing[0], "2026-01-01");
+  });
+
+  it("catches a duplicated date, which would double count it", () => {
+    const coverage = assessDayCoverage("2026-01-01", "2026-01-03", [
+      { date: "2026-01-01" },
+      { date: "2026-01-02" },
+      { date: "2026-01-02" },
+      { date: "2026-01-03" },
+    ]);
+    assert.equal(coverage.complete, false);
+    assert.deepEqual(coverage.duplicates, ["2026-01-02"]);
+  });
+
+  it("catches a date outside the requested range", () => {
+    const coverage = assessDayCoverage("2026-01-02", "2026-01-03", [
+      { date: "2026-01-01" },
+      { date: "2026-01-02" },
+      { date: "2026-01-03" },
+    ]);
+    assert.equal(coverage.complete, false);
+    assert.deepEqual(coverage.outOfRange, ["2026-01-01"]);
+  });
+
+  it("reports an empty series as wholly missing rather than as zeroes", () => {
+    const coverage = assessDayCoverage("2026-01-01", "2026-01-31", []);
+    assert.equal(coverage.complete, false);
+    assert.equal(coverage.missingCount, 31);
+    assert.equal(coverage.firstDate, null);
+  });
+
+  it("withholds profit when the range came back short", () => {
+    const base = status();
+    const result = assessCompleteness({
+      ...base,
+      coverage: assessDayCoverage("2026-01-01", "2026-08-20", range("2026-04-23", "2026-08-20")),
+    });
+    assert.equal(result.complete, false);
+    assert.ok(result.gaps.includes("incomplete_range"));
+    assert.ok(result.reasons.some((reason) => reason.includes("112 of 232")));
+  });
+
+  it("gives a day with no activity a zeroed record rather than no record", () => {
+    const day = emptyDay("2026-01-01", "USD");
+    assert.equal(day.date, "2026-01-01");
+    assert.equal(day.orders, 0);
+    assert.equal(day.grossSales, 0);
+    assert.equal(day.metaAdSpend, 0);
+    assert.equal(day.googleAdSpend, 0);
+    // Present in a coverage check, which is the whole difference.
+    assert.equal(assessDayCoverage("2026-01-01", "2026-01-01", [day]).complete, true);
   });
 });

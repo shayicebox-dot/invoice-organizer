@@ -12,6 +12,7 @@
  * profit and margin figure until then.
  */
 
+import type { DayCoverage } from "./day-coverage";
 import type { BusinessCostStatus } from "./live-costs";
 import type { GoogleAdsStatus } from "./live-google-ads";
 import type { MetaStatus } from "./live-meta";
@@ -22,9 +23,12 @@ export interface LiveSourceStatus {
   meta: MetaStatus;
   googleAds: GoogleAdsStatus;
   costs: BusinessCostStatus;
+  /** Whether every requested calendar day came back exactly once. */
+  coverage: DayCoverage;
 }
 
 export type CompletenessGap =
+  | "incomplete_range"
   | "shopify_disconnected"
   | "shopify_truncated"
   | "shopify_history_limited"
@@ -49,6 +53,32 @@ export function assessCompleteness(status: LiveSourceStatus): Completeness {
     gaps.push(gap);
     reasons.push(reason);
   };
+
+  // Checked first, and separately from every source: a day that is missing from
+  // the series is not a source reporting zero, it is a day nothing could report
+  // on. Totals built from a short series still reconcile against each other,
+  // so this is the only check that catches it.
+  const coverage = status.coverage;
+  if (!coverage.complete) {
+    const parts: string[] = [];
+    if (coverage.missingCount > 0) {
+      parts.push(
+        `${coverage.missingCount} of ${coverage.requested} requested day` +
+          `${coverage.requested === 1 ? "" : "s"} produced no record` +
+          (coverage.missing.length > 0 ? ` (${coverage.missing.join(", ")}…)` : ""),
+      );
+    }
+    if (coverage.duplicates.length > 0) {
+      parts.push(`${coverage.duplicates.length} date(s) appeared twice, double counting them`);
+    }
+    if (coverage.outOfRange.length > 0) {
+      parts.push(`${coverage.outOfRange.length} date(s) fell outside the requested range`);
+    }
+    if (parts.length === 0) {
+      parts.push(`${coverage.returned} records came back for ${coverage.requested} days`);
+    }
+    add("incomplete_range", `The reporting range is incomplete: ${parts.join("; ")}.`);
+  }
 
   if (status.shopify.state !== "connected") {
     add(

@@ -47,7 +47,7 @@ const { describeIdentity } = await import("../src/lib/business-costs/pack-mappin
 const { identityOf } = await import("../src/lib/data/live-costs");
 const { getGrantedScopes } = await import("../src/lib/shopify/client");
 const { orderHistoryWindow, daysBeyondWindow } = await import("../src/lib/shopify/history-window");
-const { today } = await import("../src/lib/date-range");
+const { today, daysBetween, enumerateDates } = await import("../src/lib/date-range");
 
 const yearArg = process.argv.slice(2).find((arg) => /^\d{4}$/.test(arg));
 const year = yearArg ? Number.parseInt(yearArg, 10) : Number.parseInt(today().slice(0, 4), 10);
@@ -170,17 +170,69 @@ check(
     : `net sales ${formatMoney(fromMinor(monthlySum.netSales))} vs ${formatMoney(summary.netSales)}`,
 );
 
-const dayCount = report.days.length;
+// --- Range coverage -------------------------------------------------------
+//
+// The check that would have caught the bug that hid January through April.
+// Every other total reconciled while the series was short, because they were
+// all computed from the same short series. Only a comparison against what was
+// *asked for* catches that.
+
+const expectedDates = enumerateDates(report.start, report.end);
+const returnedDates = report.days.map((day) => day.date);
+const seen = new Set(returnedDates);
+const missing = expectedDates.filter((date) => !seen.has(date));
+const duplicates = returnedDates.filter((date, index) => returnedDates.indexOf(date) !== index);
+
 check(
-  dayCount > 0,
-  "Every day in the range is present",
-  `${dayCount} daily records`,
+  report.days.length === daysBetween(report.start, report.end),
+  "Requested day count equals returned day count",
+  `${report.days.length} returned of ${daysBetween(report.start, report.end)} requested`,
+);
+
+check(
+  missing.length === 0,
+  "No missing dates",
+  missing.length === 0 ? "" : `${missing.length} missing, first ${missing[0]}`,
+);
+
+check(
+  duplicates.length === 0,
+  "No duplicate dates",
+  duplicates.length === 0 ? "" : `${[...new Set(duplicates)].slice(0, 5).join(", ")}`,
+);
+
+check(
+  returnedDates[0] === report.start,
+  "First returned date is the requested start",
+  `${returnedDates[0] ?? "(none)"} vs ${report.start}`,
+);
+
+check(
+  returnedDates[returnedDates.length - 1] === report.end,
+  "Last returned date is the requested end",
+  `${returnedDates[returnedDates.length - 1] ?? "(none)"} vs ${report.end}`,
+);
+
+// The months must also cover the year, not merely agree with it.
+const monthDayCount = report.months.reduce((acc, m) => acc + m.summary.dayCount, 0);
+check(
+  monthDayCount === report.days.length,
+  "Monthly buckets cover every day of the year",
+  `${monthDayCount} days across ${report.months.length} months`,
 );
 
 check(
   report.completeness.complete,
   "P&L is complete",
   report.completeness.reasons.join(" | "),
+);
+
+// summarize() records how many day records it folded, so this asserts the
+// yearly total was built from the complete range rather than a short array.
+check(
+  report.summary.dayCount === daysBetween(report.start, report.end),
+  "Yearly total is computed over the whole requested range",
+  `${report.summary.dayCount} days folded, ${report.start} .. ${report.end}`,
 );
 
 // --- Monthly breakdown ----------------------------------------------------

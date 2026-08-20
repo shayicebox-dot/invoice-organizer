@@ -758,6 +758,29 @@ Windows that have already closed are cached for ten minutes rather than one,
 since only a late edit or refund can still move them. A range including today
 keeps the short cache.
 
+#### The requested range is the spine
+
+`getLiveDailyFinancials` builds one record per calendar day **from the range it
+was asked for**, before consulting any source. A source with nothing to say
+about a day leaves a zero; it cannot remove the day.
+
+That ordering is not stylistic. The series used to be built from the generated
+demo data — a fixed 120-day trailing window — and have live data merged onto it.
+Every overlay is a `map` over the series it is given, so a requested day the
+generator had never produced had no row for live data to land in. Shopify, Meta
+and Google were all read successfully and **discarded**, and roughly seven
+months of real trading reported as zero.
+
+Nothing looked wrong. Every total agreed with every other total, because they
+were all computed from the same short array. Reconciling a sum against its own
+parts proves nothing when both share a truncated input.
+
+So `assessDayCoverage` compares what came back against what was asked for —
+day count, missing dates, duplicates, dates outside the range — and any gap
+withholds profit like every other. The generated series is now one overlay
+among several, supplying only the cost lines that have no real source
+configured, and it never decides which days exist.
+
 #### Four inputs, one gate
 
 `assessCompleteness` (`src/lib/data/completeness.ts`) is the single place that
@@ -765,6 +788,7 @@ decides whether a profit figure may be shown. All four must hold:
 
 | Input | Fails when |
 |---|---|
+| Range coverage | a requested day produced no record, appeared twice, or fell outside the range |
 | Shopify range | disconnected, paging truncated, or part of the range beyond `read_all_orders` reach |
 | Pack mapping | any order line has no box quantity |
 | Meta Ads | not connected, or a short range |
