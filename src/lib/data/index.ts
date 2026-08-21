@@ -231,42 +231,14 @@ export interface OrderWithItems {
   contribution: Money;
 }
 
-/** Recent orders for a scope and window, newest first. */
-export async function getOrders(
-  scope: StoreScope,
-  start: ISODate,
-  end: ISODate,
-  limit = 50,
-): Promise<OrderWithItems[]> {
-  const data = dataset();
-  const storeIds = new Set(resolveScope(scope));
-
-  const itemsByOrder = new Map<string, OrderItem[]>();
-  for (const item of data.orderItems) {
-    const bucket = itemsByOrder.get(item.orderId);
-    if (bucket) bucket.push(item);
-    else itemsByOrder.set(item.orderId, [item]);
-  }
-
-  const results: OrderWithItems[] = [];
-  for (const order of data.orders) {
-    if (results.length >= limit) break;
-    if (!storeIds.has(order.storeId)) continue;
-    if (order.date < start || order.date > end) continue;
-
-    const items = itemsByOrder.get(order.id) ?? [];
-    const cogs = sum(items.map((item) => (item.unitCost * item.quantity) as Money));
-    const contribution = (order.grossSales -
-      order.discounts -
-      cogs -
-      order.shippingCost -
-      order.paymentFees) as Money;
-
-    results.push({ order, items, cogs, contribution });
-  }
-
-  return results;
-}
+/*
+ * `getOrders` used to live here: it read the generated dataset and fed the
+ * Orders table, which is how three fictional stores and a pair of invented
+ * customer names came to render beneath live Shopify totals. It is deleted
+ * rather than left unused — a reader that returns plausible orders is one
+ * import away from being wired back in. Real orders come from
+ * `getLiveOrders`, which has no fallback.
+ */
 
 export async function getRefunds(
   scope: StoreScope,
