@@ -302,3 +302,39 @@ describe("day coverage", () => {
     assert.equal(assessDayCoverage("2026-01-01", "2026-01-01", [day]).complete, true);
   });
 });
+
+// --- Order rows ------------------------------------------------------------
+
+describe("order rows carry no invented data", () => {
+  it("has no sample store or customer fixtures left in the catalog", async () => {
+    const catalog = await import("../src/lib/data/catalog");
+    const serialized = JSON.stringify({
+      org: catalog.ORGANIZATION,
+      user: catalog.CURRENT_USER,
+      stores: catalog.STORES,
+    });
+
+    for (const fixture of ["Northbeam", "Trailhead", "Aurora", "Dana Reyes"]) {
+      assert.equal(serialized.includes(fixture), false, `${fixture} still present`);
+    }
+  });
+
+  it("reports on exactly one store, whose name comes from Shopify", async () => {
+    const catalog = await import("../src/lib/data/catalog");
+    assert.equal(catalog.STORES.length, 1);
+    // A placeholder, never a plausible brand: it is replaced with the live shop
+    // name at read time, and must not read as real if that call ever fails.
+    assert.equal(catalog.STORES[0].name, "Connected store");
+    assert.equal(catalog.STORES[0].domain, "");
+  });
+
+  it("never generates a customer name", async () => {
+    const { generateDataset } = await import("../src/lib/data/generate");
+    const dataset = generateDataset("2026-08-20");
+    assert.ok(dataset.orders.length > 0);
+    assert.equal(
+      dataset.orders.every((order) => order.customerName === ""),
+      true,
+    );
+  });
+});

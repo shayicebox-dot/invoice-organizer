@@ -727,7 +727,7 @@ tooltip shows is also present in the Daily P&L table below it.
 | `/` | Overview — KPI row, today's money flow, net profit trend, revenue vs expenses, daily P&L |
 | `/profit-and-loss` | Full statement, each line as a share of net sales, margins, per-store split |
 | `/marketing` | Spend by channel, blended ROAS, MER, cost per order, attribution caveats |
-| `/orders` | Recent orders with per-order contribution after product, shipping and fees |
+| `/orders` | Real Shopify orders, each costed with the pack model |
 | `/products` | Units, revenue, COGS and gross margin per SKU |
 | `/year` | A whole year: totals plus a month-by-month breakdown |
 | `/expenses` | Variable and fixed expenses, and how allocation works |
@@ -757,6 +757,28 @@ truncation withholds profit.
 Windows that have already closed are cached for ten minutes rather than one,
 since only a late edit or refund can still move them. A range including today
 keeps the short cache.
+
+### Orders come from Shopify, or not at all
+
+Every other page degrades to generated data when a provider is unreachable,
+which is defensible for a total labelled `mock`. An order row is different: it
+is a claim about a specific transaction with a specific customer, so a
+plausible invented one is not a degraded answer, it is a false one.
+
+`/orders` therefore has no fallback. When Shopify cannot be read it shows
+**Unavailable** and no table. The store name is the connected shop's own; the
+order number, date, totals and status are the order's own; and a customer with
+no name from Shopify is a **Guest customer**, never a generated one.
+
+Customer names are protected data — Shopify releases them only to apps holding
+`read_customers` *and* approved for protected customer data. The reader asks for
+the field only when the scope is present and silently retries without it if
+Shopify declines, so the page works either way and says which case it is in.
+
+One number is deliberately absent: there is no per-order shipping or payment
+fee. Under the pack model shipping sits inside the pack's operational cost and
+processing sits inside the percentage of net revenue, so splitting either across
+orders would be inventing a division the business never made.
 
 #### The requested range is the spine
 

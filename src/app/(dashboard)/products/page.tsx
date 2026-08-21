@@ -34,6 +34,14 @@ export default async function ProductsPage(props: PageProps<"/products">) {
         description={`${view.scopeLabel} · ${view.range.label}. Product revenue is measured at list price; discounts and refunds are settled at the P&L level.`}
       />
 
+      <p className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 text-[12.5px] leading-5 text-ink-secondary">
+        <strong className="font-semibold text-ink">Sample catalog.</strong> This page still reads a
+        generated product list, not your Shopify catalog — the titles and SKUs below are not real.
+        Orders, Profit &amp; Loss, Overview and the Year Summary are all live. Nothing on this page
+        feeds the P&amp;L: operational cost comes from the pack model applied to real Shopify line
+        items.
+      </p>
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Units Sold"

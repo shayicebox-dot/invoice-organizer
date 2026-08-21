@@ -20,10 +20,19 @@ import type {
 } from "../types";
 import { stableId } from "./random";
 
+/**
+ * The tenant, with no invented brand.
+ *
+ * The display name is replaced with the connected Shopify shop's own name at
+ * read time — see `getOrganization` and `getStores`. A placeholder that reads
+ * like a real company gets mistaken for one, which is exactly what happened
+ * when three fictional stores were rendering in the store selector and on
+ * every order row.
+ */
 export const ORGANIZATION: Organization = {
-  id: stableId("org:northbeam"),
-  name: "Northbeam Commerce Group",
-  slug: "northbeam",
+  id: stableId("org:primary"),
+  name: "Connected store",
+  slug: "primary",
   baseCurrency: "USD",
   timezone: "America/New_York",
   createdAt: "2023-02-14T09:00:00.000Z",
@@ -31,8 +40,8 @@ export const ORGANIZATION: Organization = {
 
 export const CURRENT_USER: User = {
   id: stableId("user:owner"),
-  email: "owner@northbeam.co",
-  fullName: "Dana Reyes",
+  email: "",
+  fullName: "Store owner",
   createdAt: "2023-02-14T09:00:00.000Z",
 };
 
@@ -43,6 +52,11 @@ export const CURRENT_USER: User = {
  */
 export interface StoreProfile {
   store: Store;
+  /**
+   * Key into `PRODUCT_SEEDS`. Explicit rather than derived from the domain,
+   * which is a live Shopify value and carries no relationship to a fixture.
+   */
+  catalogKey: string;
   /** Average gross sales per day, in major units. */
   dailyGrossTarget: number;
   /** Average order value, in major units. */
@@ -83,9 +97,18 @@ function store(
   };
 }
 
+/**
+ * One profile, for the one connected store.
+ *
+ * These ratios shape the generated series that still stands in for cost lines
+ * with no real source configured. Its name and domain are placeholders,
+ * overwritten with the live shop's own at read time — nothing here should ever
+ * reach the screen as though it were a real business.
+ */
 export const STORE_PROFILES: StoreProfile[] = [
   {
-    store: store("northbeam-supply", "Northbeam Supply Co.", "northbeam-supply.myshopify.com", "2023-02-20T09:00:00.000Z"),
+    store: store("primary", "Connected store", "", "2023-02-20T09:00:00.000Z"),
+    catalogKey: "primary",
     dailyGrossTarget: 9_100,
     averageOrderValue: 86,
     cogsRatio: 0.24,
@@ -95,30 +118,6 @@ export const STORE_PROFILES: StoreProfile[] = [
     discountRate: 0.34,
     refundRate: 0.014,
     dailyGrowth: 0.0016,
-  },
-  {
-    store: store("aurora-skincare", "Aurora Skincare", "aurora-skincare.myshopify.com", "2023-08-05T09:00:00.000Z"),
-    dailyGrossTarget: 4_900,
-    averageOrderValue: 74,
-    cogsRatio: 0.2,
-    metaDailySpend: 1_190,
-    googleDailySpend: 310,
-    emailDailySpend: 55,
-    discountRate: 0.42,
-    refundRate: 0.016,
-    dailyGrowth: 0.0021,
-  },
-  {
-    store: store("trailhead-outfitters", "Trailhead Outfitters", "trailhead-outfitters.myshopify.com", "2024-03-11T09:00:00.000Z"),
-    dailyGrossTarget: 2_400,
-    averageOrderValue: 118,
-    cogsRatio: 0.3,
-    metaDailySpend: 530,
-    googleDailySpend: 132,
-    emailDailySpend: 30,
-    discountRate: 0.22,
-    refundRate: 0.012,
-    dailyGrowth: 0.0009,
   },
 ];
 
@@ -147,28 +146,13 @@ interface ProductSeed {
 }
 
 const PRODUCT_SEEDS: Record<string, ProductSeed[]> = {
-  "northbeam-supply": [
+  "primary": [
     { title: "Daily Greens Powder — 30 Servings", sku: "NB-GRN-30", category: "Supplements", price: 48, cost: 11.4, previousCost: 10.8, weight: 26 },
     { title: "Magnesium Complex — 60ct", sku: "NB-MAG-60", category: "Supplements", price: 34, cost: 7.9, previousCost: 7.4, weight: 21 },
     { title: "Electrolyte Sticks — 24 Pack", sku: "NB-ELE-24", category: "Hydration", price: 39, cost: 9.6, previousCost: 9.6, weight: 18 },
     { title: "Collagen Peptides — 16oz", sku: "NB-COL-16", category: "Supplements", price: 56, cost: 14.2, previousCost: 13.5, weight: 14 },
     { title: "Sleep Blend — 30ct", sku: "NB-SLP-30", category: "Supplements", price: 42, cost: 10.1, previousCost: 10.1, weight: 11 },
     { title: "Starter Bundle", sku: "NB-BND-01", category: "Bundles", price: 129, cost: 32.5, previousCost: 30.9, weight: 10 },
-  ],
-  "aurora-skincare": [
-    { title: "Barrier Repair Cream — 50ml", sku: "AU-BRC-50", category: "Moisturizer", price: 62, cost: 11.8, previousCost: 11.2, weight: 24 },
-    { title: "Vitamin C Serum — 30ml", sku: "AU-VCS-30", category: "Serum", price: 74, cost: 15.4, previousCost: 15.4, weight: 22 },
-    { title: "Gentle Gel Cleanser — 150ml", sku: "AU-GGC-150", category: "Cleanser", price: 32, cost: 6.1, previousCost: 5.8, weight: 20 },
-    { title: "Mineral SPF 40 — 50ml", sku: "AU-SPF-50", category: "Sun Care", price: 46, cost: 9.7, previousCost: 9.7, weight: 17 },
-    { title: "Overnight Peel — 30ml", sku: "AU-ONP-30", category: "Treatment", price: 58, cost: 12.3, previousCost: 11.6, weight: 10 },
-    { title: "Complete Routine Set", sku: "AU-SET-01", category: "Bundles", price: 168, cost: 34.9, previousCost: 34.9, weight: 7 },
-  ],
-  "trailhead-outfitters": [
-    { title: "Alpine Shell Jacket", sku: "TH-ASJ-01", category: "Outerwear", price: 268, cost: 84.5, previousCost: 79.9, weight: 18 },
-    { title: "Merino Base Layer", sku: "TH-MBL-01", category: "Layering", price: 94, cost: 28.2, previousCost: 28.2, weight: 24 },
-    { title: "Trail 30L Pack", sku: "TH-PK30-01", category: "Packs", price: 148, cost: 46.1, previousCost: 43.8, weight: 20 },
-    { title: "Insulated Flask — 32oz", sku: "TH-FLK-32", category: "Accessories", price: 42, cost: 12.6, previousCost: 12.6, weight: 21 },
-    { title: "Approach Glove", sku: "TH-GLV-01", category: "Accessories", price: 58, cost: 18.4, previousCost: 17.2, weight: 17 },
   ],
 };
 
@@ -185,8 +169,7 @@ function buildCatalog(): CatalogEntry[] {
   const entries: CatalogEntry[] = [];
 
   for (const profile of STORE_PROFILES) {
-    const key = profile.store.domain.split(".")[0];
-    for (const seed of PRODUCT_SEEDS[key] ?? []) {
+    for (const seed of PRODUCT_SEEDS[profile.catalogKey] ?? []) {
       const productId = stableId(`product:${seed.sku}`);
       const product: Product = {
         id: productId,
@@ -265,7 +248,7 @@ const FIXED_EXPENSE_SEEDS: FixedExpenseSeed[] = [
   { name: "Warehouse lease", category: "rent", monthly: 4_500, storeKey: null },
   { name: "Software stack", category: "software", monthly: 1_850, storeKey: null },
   { name: "Bookkeeping & legal", category: "professional_services", monthly: 1_250, storeKey: null },
-  { name: "3PL monthly minimum", category: "professional_services", monthly: 900, storeKey: "northbeam-supply" },
+  { name: "3PL monthly minimum", category: "professional_services", monthly: 900, storeKey: "primary" },
 ];
 
 export const FIXED_EXPENSES: Expense[] = FIXED_EXPENSE_SEEDS.map((seed) => ({
@@ -411,7 +394,7 @@ const CONNECTION_SEEDS: Array<{
   accountLabel: string | null;
   lastSyncedAt: string | null;
 }> = [
-  { provider: "shopify", storeKey: "northbeam-supply", status: "disconnected", accountLabel: null, lastSyncedAt: null },
+  { provider: "shopify", storeKey: "primary", status: "disconnected", accountLabel: null, lastSyncedAt: null },
   { provider: "meta_ads", storeKey: null, status: "disconnected", accountLabel: null, lastSyncedAt: null },
   { provider: "google_ads", storeKey: null, status: "disconnected", accountLabel: null, lastSyncedAt: null },
   { provider: "klaviyo", storeKey: null, status: "disconnected", accountLabel: null, lastSyncedAt: null },

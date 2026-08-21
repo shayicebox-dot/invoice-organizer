@@ -69,17 +69,6 @@ const REFUND_REASONS: RefundReason[] = [
   "other",
 ];
 
-const FIRST_NAMES = [
-  "Ava", "Noah", "Mia", "Liam", "Zoe", "Ethan", "Iris", "Owen", "Nina", "Leo",
-  "Ruth", "Kai", "Elena", "Jonah", "Maya", "Felix", "Sara", "Theo", "Lena", "Miles",
-];
-
-const LAST_NAMES = [
-  "Alvarez", "Bennett", "Cho", "Duarte", "Ellis", "Foster", "Grant", "Hayes",
-  "Ibarra", "Jensen", "Keller", "Lombardi", "Mensah", "Novak", "Okafor", "Patel",
-  "Quinn", "Rivera", "Sorensen", "Tanaka",
-];
-
 export interface MockDataset {
   /** Newest first. */
   orders: Order[];
@@ -138,10 +127,6 @@ function weightedPick(entries: readonly CatalogEntry[], rng: Rng): CatalogEntry 
     if (threshold <= 0) return entry;
   }
   return entries[entries.length - 1];
-}
-
-function customerName(rng: Rng): string {
-  return `${rng.pick(FIRST_NAMES)} ${rng.pick(LAST_NAMES)}`;
 }
 
 interface GeneratedOrder {
@@ -214,7 +199,8 @@ function generateOrder(
     date,
     processedAt: `${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00.000Z`,
     currency: profile.store.currency,
-    customerName: customerName(rng),
+    // Never invented. Order rows come from Shopify, where the real name is.
+    customerName: "",
     grossSales: add(subtotal, shippingCharged),
     discounts: discount,
     shippingCharged,

@@ -74,6 +74,9 @@ import {
   assessCompleteness,
 } from "./completeness";
 import { assessDayCoverage } from "./day-coverage";
+import { getShopifyConfig } from "../shopify/config";
+import { fetchShopInfo } from "../shopify/shop";
+import { type LiveOrderRow, type LiveOrdersResult, loadLiveOrders } from "./live-orders";
 import {
   type BusinessCostStatus,
   type HistoricalMapping,
@@ -100,12 +103,46 @@ function dataset(): MockDataset {
   return cache;
 }
 
-export async function getOrganization() {
-  return ORGANIZATION;
+/**
+ * The connected shop's own identity, or `null` before a call has succeeded.
+ *
+ * Cached in the module so the store selector and page headers do not each cost
+ * a Shopify round trip.
+ */
+let shopIdentity: { name: string; domain: string; fetchedAt: number } | null = null;
+const SHOP_IDENTITY_TTL_MS = 600_000;
+
+async function liveShopIdentity(): Promise<{ name: string; domain: string } | null> {
+  if (!getShopifyConfig()) return null;
+  if (shopIdentity && Date.now() - shopIdentity.fetchedAt < SHOP_IDENTITY_TTL_MS) {
+    return { name: shopIdentity.name, domain: shopIdentity.domain };
+  }
+  try {
+    const shop = await fetchShopInfo();
+    shopIdentity = { name: shop.name, domain: shop.domain, fetchedAt: Date.now() };
+    return { name: shop.name, domain: shop.domain };
+  } catch {
+    // A name is not worth failing a page over. The placeholder is honest.
+    return shopIdentity ? { name: shopIdentity.name, domain: shopIdentity.domain } : null;
+  }
 }
 
+export async function getOrganization() {
+  const shop = await liveShopIdentity();
+  return shop ? { ...ORGANIZATION, name: shop.name } : ORGANIZATION;
+}
+
+/**
+ * The stores the dashboard reports on.
+ *
+ * There is one, and its name and domain come from Shopify rather than from a
+ * fixture. The ids stay stable so scope resolution and the generated cost
+ * series keep working; only what a person reads is live.
+ */
 export async function getStores(): Promise<Store[]> {
-  return STORES;
+  const shop = await liveShopIdentity();
+  if (!shop) return STORES;
+  return STORES.map((store) => ({ ...store, name: shop.name, domain: shop.domain }));
 }
 
 export async function getConnections(): Promise<Connection[]> {
@@ -721,6 +758,20 @@ export async function getHistoricalMapping(
 }
 
 export type { HistoricalMapping };
+
+/**
+ * Real order rows for the Orders page. No generated fallback: an invented order
+ * is a false claim about a real transaction, not a degraded answer.
+ */
+export async function getLiveOrders(
+  start: ISODate,
+  end: ISODate,
+  limit: number,
+): Promise<LiveOrdersResult> {
+  return loadLiveOrders(start, end, limit);
+}
+
+export type { LiveOrderRow, LiveOrdersResult };
 
 /** Connection status for the Connections page. Metadata only, no data sync. */
 export async function getShopifyStatus(): Promise<ShopifyStatus> {
