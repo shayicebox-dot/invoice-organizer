@@ -25,7 +25,8 @@ MVP dashboard over an empty data source. What exists:
 - Money primitives and pure metric calculations in `src/core`
 - Business and cost configuration in `src/lib/config/business.ts`
 - A single data seam, `src/data/dashboard-source.ts`, returning empties
-- Placeholder pages for Sales, Marketing, Products, Expenses, Settings
+- Placeholder pages for Sales, Marketing, Products and Expenses
+- Settings: Shopify connection status and a server-side "Test connection" check
 - Shopify Admin GraphQL integration in `src/integrations/shopify` — client
   credentials auth, connection test and order reads, prepared but not yet
   feeding the dashboard
@@ -226,6 +227,10 @@ deliberately — never hardcoded to today's values.
   memory and refreshed before expiry. No long-lived API token is stored.
 - **Diagnostic endpoints fail closed.** `/api/integrations/*/test` requires
   `ICEBOX_INTEGRATION_TEST_SECRET`; unset means disabled, never public.
+- **Server actions return explicit view models.** An action feeding the browser
+  maps its result onto a narrow type (see `ShopifyConnectionView`) rather than
+  passing an internal object through, so a field added upstream cannot reach the
+  client unnoticed.
 - `.env.local` is git-ignored. `.env.example` documents variable names only —
   never values.
 
