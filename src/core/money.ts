@@ -82,3 +82,59 @@ export function applyBasisPoints(amount: Money, basisPoints: number): Money {
   const rounded = product < 0 ? -Math.round(-product) : Math.round(product);
   return money(rounded, amount.currency);
 }
+
+/**
+ * Parse a decimal money string (as returned by external APIs, e.g. Shopify's
+ * `MoneyV2.amount` — `"123.45"`) into integer minor units.
+ *
+ * Deliberately string-based: `parseFloat('0.29') * 100` is `28.999...`, and
+ * that class of error is exactly what this system must never introduce.
+ *
+ * Rounding rule: values carrying more precision than the currency's minor unit
+ * are rounded half away from zero. All currencies in `CurrencyCode` use two
+ * decimal places; adding a zero-decimal currency (e.g. JPY) means revisiting
+ * `MINOR_UNIT_DIGITS` below.
+ *
+ * Throws on anything that is not a plain decimal number — a malformed amount
+ * must fail loudly rather than silently become zero.
+ */
+const MINOR_UNIT_DIGITS = 2;
+const DECIMAL_PATTERN = /^(-)?(\d+)(?:\.(\d+))?$/;
+
+export function moneyFromDecimalString(value: string, currency: CurrencyCode): Money {
+  const match = DECIMAL_PATTERN.exec(value.trim());
+
+  if (match === null) {
+    throw new Error(`Not a decimal money amount: "${value}".`);
+  }
+
+  const [, sign, whole = '0', fraction = ''] = match;
+  const padded = fraction.padEnd(MINOR_UNIT_DIGITS, '0');
+  const kept = padded.slice(0, MINOR_UNIT_DIGITS);
+  const dropped = padded.slice(MINOR_UNIT_DIGITS);
+
+  let minorUnits = Number(whole) * 10 ** MINOR_UNIT_DIGITS + Number(kept);
+
+  // Round half away from zero on the first dropped digit.
+  const firstDropped = dropped.charAt(0);
+  if (firstDropped !== '' && Number(firstDropped) >= 5) {
+    minorUnits += 1;
+  }
+
+  if (!Number.isSafeInteger(minorUnits)) {
+    throw new Error(`Money amount out of safe integer range: "${value}".`);
+  }
+
+  return money(sign === '-' ? -minorUnits : minorUnits, currency);
+}
+
+const SUPPORTED_CURRENCIES: readonly CurrencyCode[] = ['ILS', 'USD', 'EUR'];
+
+/**
+ * Narrow an arbitrary currency code from an external system.
+ * Returns `null` for currencies this system does not model yet — the caller
+ * decides whether that is an error, rather than a wrong currency being assumed.
+ */
+export function parseCurrencyCode(value: string): CurrencyCode | null {
+  return SUPPORTED_CURRENCIES.find((code) => code === value) ?? null;
+}

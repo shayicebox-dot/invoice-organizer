@@ -1,9 +1,12 @@
 # `src/integrations` — external systems
 
-Adapters for everything outside ICEBOX OS. Nothing is implemented yet.
+Adapters for everything outside ICEBOX OS.
 
-Planned: `shopify/`, `meta-ads/`, `google-ads/`, Israeli invoicing/accounting
-providers, and payment processors.
+- `shopify/` — Admin GraphQL client, connection test and order reads. Prepared,
+  not yet feeding the dashboard. See its README.
+
+Planned: `meta-ads/`, `google-ads/`, Israeli invoicing/accounting providers, and
+payment processors.
 
 **Rules**
 
