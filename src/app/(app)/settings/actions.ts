@@ -1,6 +1,7 @@
 'use server';
 
 import { testShopifyConnection } from '@/integrations/shopify/connection';
+import { hasValidSession } from '@/lib/auth/current-session';
 import { isShopifyConfigured } from '@/lib/config/env';
 import type { ShopifyConnectionView } from '@/components/settings/shopify-status';
 
@@ -40,6 +41,18 @@ function isRateLimited(now: number): boolean {
 export async function checkShopifyConnection(): Promise<ShopifyConnectionView> {
   const now = Date.now();
   const checkedAt = new Date(now).toISOString();
+
+  // Middleware already blocks unauthenticated requests. Checking again here
+  // means this action stays safe on its own merits, rather than depending on a
+  // matcher pattern in another file staying correct.
+  if (!(await hasValidSession())) {
+    return {
+      status: 'error',
+      message: 'Your session has expired.',
+      guidance: 'Sign in again to run the connection test.',
+      checkedAt,
+    };
+  }
 
   if (isRateLimited(now)) {
     return {

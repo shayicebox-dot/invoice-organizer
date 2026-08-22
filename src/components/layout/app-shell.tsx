@@ -8,6 +8,8 @@ import { Topbar } from '@/components/layout/topbar';
 
 type AppShellProps = {
   readonly children: ReactNode;
+  /** Server-rendered sign-out control, handed down to the top bar. */
+  readonly logoutSlot: ReactNode;
 };
 
 /**
@@ -16,7 +18,7 @@ type AppShellProps = {
  *
  * Layout only — it must never read data or compute anything financial.
  */
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, logoutSlot }: AppShellProps) {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -74,7 +76,7 @@ export function AppShell({ children }: AppShellProps) {
       ) : null}
 
       <div className="lg:pl-60">
-        <Topbar onOpenSidebar={() => setSidebarOpen(true)} />
+        <Topbar onOpenSidebar={() => setSidebarOpen(true)} logoutSlot={logoutSlot} />
         <main className="mx-auto w-full max-w-[1400px] px-4 py-6 lg:px-8 lg:py-8">{children}</main>
       </div>
     </div>

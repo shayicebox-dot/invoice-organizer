@@ -4,12 +4,15 @@ import { usePathname } from 'next/navigation';
 import { Menu, Search, Bell } from 'lucide-react';
 import { findNavItemByPath } from '@/lib/config/navigation';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
+import type { ReactNode } from 'react';
 
 type TopbarProps = {
   readonly onOpenSidebar: () => void;
+  /** Rendered from the server so the sign-out action stays server-side. */
+  readonly logoutSlot: ReactNode;
 };
 
-export function Topbar({ onOpenSidebar }: TopbarProps) {
+export function Topbar({ onOpenSidebar, logoutSlot }: TopbarProps) {
   const pathname = usePathname();
   const current = findNavItemByPath(pathname);
 
@@ -60,9 +63,10 @@ export function Topbar({ onOpenSidebar }: TopbarProps) {
             IX
           </span>
           <span className="hidden text-xs leading-tight sm:flex sm:flex-col">
-            <span className="font-medium text-foreground">Not signed in</span>
-            <span className="text-foreground-subtle">Auth not wired yet</span>
+            <span className="font-medium text-foreground">Owner</span>
+            <span className="text-foreground-subtle">Signed in</span>
           </span>
+          {logoutSlot}
         </div>
       </div>
     </header>

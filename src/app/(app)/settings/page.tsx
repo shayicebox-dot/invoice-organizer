@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { ShieldAlert } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -64,17 +64,17 @@ export default function SettingsPage() {
         <Card>
           <CardHeader>
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-surface-muted text-warning">
-                <ShieldAlert className="size-4" aria-hidden="true" />
+              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border-subtle bg-surface-muted text-positive">
+                <ShieldCheck className="size-4" aria-hidden="true" />
               </span>
               <div>
-                <CardTitle>Sign-in is not built yet</CardTitle>
+                <CardTitle>Owner sign-in</CardTitle>
                 <CardDescription>
-                  Anyone who knows this site&rsquo;s address can open it and press{' '}
-                  <span className="text-foreground-muted">Test connection</span>. That reveals the
-                  store name, currency, timezone and granted scopes — no credentials, no financial
-                  data, and no customer data. Until sign-in exists, restrict access at the hosting
-                  level (Vercel&rsquo;s Deployment Protection) if that matters.
+                  Every page and action requires the owner password, held only in{' '}
+                  <span className="text-foreground-muted">ICEBOX_ADMIN_PASSWORD</span> on the
+                  server. A session lasts 7 days; changing the password signs every device out
+                  immediately. Use <span className="text-foreground-muted">Sign out</span> in the
+                  top bar to end this session now.
                 </CardDescription>
               </div>
             </div>
