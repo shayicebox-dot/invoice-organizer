@@ -1,3 +1,16 @@
+# ICEBOX OS
+
+Internal financial operating system for ICEBOX (Next.js + TypeScript + Supabase).
+See [CLAUDE.md](./CLAUDE.md) for architecture and development rules.
+
+```bash
+npm install
+cp .env.example .env.local   # fill in Supabase credentials
+npm run dev
+```
+
+---
+
 # Gmail Invoice Organizer
 
 A small Python script that logs into Gmail once a month, finds invoice / receipt

@@ -18,3 +18,18 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+
+# Local env files
+.env*.local
+.env.local
+
+# Vercel
+.vercel

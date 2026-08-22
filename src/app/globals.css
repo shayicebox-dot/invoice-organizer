@@ -1,0 +1,95 @@
+@import 'tailwindcss';
+
+/* Dark mode is driven by a `dark` class on <html> (see ThemeScript). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   Design tokens — ICEBOX OS
+   Premium financial SaaS: neutral surfaces, one accent, no decorative gradients.
+   UI components must consume these tokens rather than raw colour values.
+--------------------------------------------------------------------------- */
+:root {
+  --background: #f7f7f8;
+  --surface: #ffffff;
+  --surface-muted: #fafafa;
+  --border: #e5e5e8;
+  --border-strong: #d4d4d8;
+  --foreground: #17171a;
+  --foreground-muted: #6b6b76;
+  --foreground-subtle: #9294a0;
+  --accent: #4f46e5;
+  --accent-foreground: #ffffff;
+  --accent-muted: #eef2ff;
+  --positive: #15803d;
+  --negative: #b91c1c;
+  --warning: #b45309;
+  --ring: #4f46e5;
+}
+
+.dark {
+  --background: #0a0a0c;
+  --surface: #131316;
+  --surface-muted: #191920;
+  --border: #26262c;
+  --border-strong: #35353d;
+  --foreground: #f4f4f5;
+  --foreground-muted: #a0a0ab;
+  --foreground-subtle: #71717a;
+  --accent: #6366f1;
+  --accent-foreground: #ffffff;
+  --accent-muted: #1e1b3a;
+  --positive: #4ade80;
+  --negative: #f87171;
+  --warning: #fbbf24;
+  --ring: #6366f1;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-border-subtle: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-foreground: var(--foreground);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-foreground-subtle: var(--foreground-subtle);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-muted: var(--accent-muted);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Financial figures always align in columns. */
+  .numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+  }
+
+  ::selection {
+    background-color: var(--accent-muted);
+    color: var(--foreground);
+  }
+}
