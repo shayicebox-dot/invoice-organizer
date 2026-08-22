@@ -56,6 +56,21 @@ granted, which is what the connection test displays.
 - **This layer computes nothing.** It maps payloads and stops. Revenue
   definitions, refund attribution and discount treatment belong in `src/core`.
 
+## Checking the connection
+
+Two ways, sharing one code path (`connection.ts`):
+
+- **Settings → Shopify → Test connection** — a server action, so no secret is
+  needed in the browser. Intended for humans.
+- `GET /api/integrations/shopify/test` with a bearer
+  `ICEBOX_INTEGRATION_TEST_SECRET` — for scripts and CI.
+
+Neither returns a credential, a token, financial data or customer data.
+
+The Settings button is rate limited to 5 tests a minute per server instance.
+That is a courtesy limit on API budget, not access control: until sign-in
+exists, anyone who can reach the deployment can press it.
+
 ## Not wired up yet
 
 `src/data/dashboard-source.ts` still returns empties, so the dashboard shows
