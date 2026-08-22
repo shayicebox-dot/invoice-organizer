@@ -2,11 +2,33 @@
 
 Reads the ICEBOX store through the **Admin GraphQL API**. Server-side only.
 
+## Authentication
+
+This is a Dev Dashboard app, so there is no permanent `shpat_` token. It uses
+the **client credentials grant**: the app POSTs its client ID and secret to
+`https://<store>.myshopify.com/admin/oauth/access_token` and receives an access
+token valid for 24 hours.
+
+`token.ts` owns that exchange. It caches the token in server memory, refreshes
+it five minutes before expiry, and collapses concurrent refreshes into a single
+request. If Shopify rejects a token that has not yet expired — revoked
+credentials, a reinstalled app — the client drops it and retries once with a
+fresh one.
+
+The cache is per server instance, so on Vercel each warm instance holds its own
+token and a cold start fetches a new one. That is correct, just not maximally
+frugal; a shared cache is a job for the database, once there is one.
+
+Scopes are chosen on the app's version in the Dev Dashboard and approved on the
+store — not requested at token time. The token response reports back what was
+granted, which is what the connection test displays.
+
 ## Files
 
 | File            | Responsibility                                                        |
 | --------------- | --------------------------------------------------------------------- |
 | `config.ts`     | Resolves and validates credentials; pins the API version               |
+| `token.ts`      | Client credentials exchange, token cache and refresh                   |
 | `client.ts`     | GraphQL transport: auth header, timeout, retries, throttle reporting   |
 | `queries.ts`    | GraphQL documents, validated against the live Admin schema             |
 | `connection.ts` | Connectivity + scope check used by the test endpoint                   |
@@ -16,12 +38,15 @@ Reads the ICEBOX store through the **Admin GraphQL API**. Server-side only.
 
 ## Rules specific to this integration
 
-- **Credentials come only from the environment.** `SHOPIFY_STORE_DOMAIN` and
-  `SHOPIFY_ADMIN_ACCESS_TOKEN` are read in `src/lib/config/env.ts` and nowhere
-  else. Nothing here is importable from a client component: every module starts
-  with `import 'server-only'`.
-- **The store domain is validated before use.** The token is sent to whatever
-  host the domain resolves to, so only `<store>.myshopify.com` is accepted.
+- **Credentials come only from the environment.** `SHOPIFY_STORE_DOMAIN`,
+  `SHOPIFY_CLIENT_ID` and `SHOPIFY_CLIENT_SECRET` are read in
+  `src/lib/config/env.ts` and nowhere else. Nothing here is importable from a
+  client component: every module starts with `import 'server-only'`.
+- **The store domain is validated before use.** The client secret is posted to
+  whatever host the domain resolves to, so only `<store>.myshopify.com` is
+  accepted.
+- **Neither the secret nor a token is ever returned or logged.** The connection
+  test reports the token's expiry, never its value.
 - **Money is never a float.** Shopify returns decimal strings; they are parsed
   to integer minor units by `moneyFromDecimalString`. An unmodelled currency
   raises an error rather than being coerced.
@@ -49,3 +74,6 @@ gets decided.
   needs stored order history, not this field alone.
 - **Cost-based rate limiting.** Every response reports the remaining query
   budget; `client.ts` retries throttled requests with backoff.
+- **Same-organization requirement.** The client credentials grant only works
+  when the app and the store belong to the same Shopify organization. Otherwise
+  Shopify returns `shop_not_permitted`, which the token layer reports as such.

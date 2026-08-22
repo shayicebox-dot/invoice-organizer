@@ -13,6 +13,7 @@ import {
   ShopifyError,
   type ShopifyFailureReason,
 } from '@/integrations/shopify/errors';
+import { getTokenSnapshot } from '@/integrations/shopify/token';
 import { isShopifyConfigured } from '@/lib/config/env';
 import {
   optionalString,
@@ -25,9 +26,10 @@ import {
 /**
  * Connectivity check for the Shopify integration.
  *
- * Answers three questions a person actually has when wiring up a store:
- * can we reach it, is the token accepted, and does the token carry the scopes
- * this system needs. It reads nothing financial and writes nothing at all.
+ * Answers the questions a person actually has when wiring up a store: can we
+ * reach it, were the app credentials accepted, and does the resulting token
+ * carry the scopes this system needs. It reads nothing financial and writes
+ * nothing at all — and it never returns the token or the client secret.
  */
 
 export type ShopIdentity = {
@@ -45,10 +47,18 @@ export type ScopeReport = {
   readonly historicalOrdersGranted: boolean;
 };
 
+/** How the request was authenticated, and when the token lapses. */
+export type AuthReport = {
+  readonly method: 'client_credentials';
+  /** ISO timestamp; the token is refreshed automatically before this. */
+  readonly tokenExpiresAt: string | null;
+};
+
 export type ShopifyConnectionResult =
   | {
       readonly ok: true;
       readonly apiVersion: string;
+      readonly auth: AuthReport;
       readonly shop: ShopIdentity;
       readonly scopes: ScopeReport | null;
       readonly throttle: ThrottleStatus | null;
@@ -69,11 +79,22 @@ export async function testShopifyConnection(): Promise<ShopifyConnectionResult> 
     const config = getShopifyConfig();
     const shopResponse = await shopifyGraphQL({ query: SHOP_QUERY, config });
     const shop = parseShop(shopResponse.data);
-    const scopes = await readScopes(config);
+
+    // The token response reports the scopes granted to this app version, so it
+    // is the authoritative source; the installation query is only a fallback.
+    const token = getTokenSnapshot(config);
+    const scopes =
+      token !== null && token.grantedScopes.length > 0
+        ? buildScopeReport(token.grantedScopes)
+        : await readScopes(config);
 
     return {
       ok: true,
       apiVersion: config.apiVersion,
+      auth: {
+        method: 'client_credentials',
+        tokenExpiresAt: token?.expiresAt ?? null,
+      },
       shop,
       scopes,
       throttle: shopResponse.throttle,
@@ -99,16 +120,18 @@ async function readScopes(
 ): Promise<ScopeReport | null> {
   try {
     const response = await shopifyGraphQL({ query: ACCESS_SCOPES_QUERY, config });
-    const granted = parseScopes(response.data);
-
-    return {
-      granted,
-      missingRequired: REQUIRED_SHOPIFY_SCOPES.filter((scope) => !granted.includes(scope)),
-      historicalOrdersGranted: granted.includes(HISTORICAL_ORDERS_SCOPE),
-    };
+    return buildScopeReport(parseScopes(response.data));
   } catch {
     return null;
   }
+}
+
+function buildScopeReport(granted: readonly string[]): ScopeReport {
+  return {
+    granted,
+    missingRequired: REQUIRED_SHOPIFY_SCOPES.filter((scope) => !granted.includes(scope)),
+    historicalOrdersGranted: granted.includes(HISTORICAL_ORDERS_SCOPE),
+  };
 }
 
 function parseShop(data: unknown): ShopIdentity {

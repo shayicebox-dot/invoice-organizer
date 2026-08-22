@@ -26,8 +26,9 @@ MVP dashboard over an empty data source. What exists:
 - Business and cost configuration in `src/lib/config/business.ts`
 - A single data seam, `src/data/dashboard-source.ts`, returning empties
 - Placeholder pages for Sales, Marketing, Products, Expenses, Settings
-- Shopify Admin GraphQL integration in `src/integrations/shopify` — client,
-  connection test and order reads, prepared but not yet feeding the dashboard
+- Shopify Admin GraphQL integration in `src/integrations/shopify` — client
+  credentials auth, connection test and order reads, prepared but not yet
+  feeding the dashboard
 
 What does **not** exist yet, and must not be invented ad hoc:
 
@@ -218,8 +219,11 @@ deliberately — never hardcoded to today's values.
 - **Integration credentials are server-only.** Every file in
   `src/integrations` imports `server-only`. An external host that receives a
   credential is validated before the request is made — see
-  `normaliseShopDomain`, which refuses to send the Shopify token anywhere but
+  `normaliseShopDomain`, which refuses to send Shopify credentials anywhere but
   `<store>.myshopify.com`.
+- **Prefer short-lived credentials.** Shopify authenticates through the client
+  credentials grant: a 24-hour token minted from the client secret, cached in
+  memory and refreshed before expiry. No long-lived API token is stored.
 - **Diagnostic endpoints fail closed.** `/api/integrations/*/test` requires
   `ICEBOX_INTEGRATION_TEST_SECRET`; unset means disabled, never public.
 - `.env.local` is git-ignored. `.env.example` documents variable names only —

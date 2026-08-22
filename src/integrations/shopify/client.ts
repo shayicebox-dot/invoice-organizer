@@ -3,14 +3,17 @@ import 'server-only';
 import { getShopifyConfig, type ShopifyConfig } from '@/integrations/shopify/config';
 import { ShopifyError, ShopifyResponseError } from '@/integrations/shopify/errors';
 import { isRecord, readField, requireRecord } from '@/integrations/shopify/json';
+import { getAccessToken, invalidateAccessToken } from '@/integrations/shopify/token';
 
 /**
  * Server-side Shopify Admin GraphQL client.
  *
- * `server-only` makes importing this from a client component a build error, so
- * the access token can never reach the browser. The token appears in exactly
- * one place — the `X-Shopify-Access-Token` header — and is never logged,
- * returned, or embedded in an error message.
+ * Authentication is the client credentials grant: `token.ts` mints and caches a
+ * 24-hour access token, and this module attaches it. `server-only` makes
+ * importing this from a client component a build error, so neither the token
+ * nor the client secret can reach the browser. The token appears in exactly one
+ * place — the `X-Shopify-Access-Token` header — and is never logged, returned,
+ * or embedded in an error message.
  */
 
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -47,13 +50,24 @@ type GraphQLRequest = {
 export async function shopifyGraphQL(request: GraphQLRequest): Promise<ShopifyGraphQLResponse> {
   const config = request.config ?? getShopifyConfig();
   let lastError: ShopifyError | null = null;
+  /** A cached token rejected before its stated expiry is worth exactly one retry. */
+  let tokenRefreshed = false;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
-      return await executeOnce(config, request);
+      const accessToken = await getAccessToken(config, { forceRefresh: tokenRefreshed });
+      return await executeOnce(config, request, accessToken);
     } catch (error) {
       const shopifyError = toShopifyError(error);
       lastError = shopifyError;
+
+      // Shopify rejected a token we believed was valid — it may have been
+      // revoked, or the app reinstalled. Drop it and try once with a new one.
+      if (shopifyError.reason === 'unauthorized' && !tokenRefreshed) {
+        invalidateAccessToken(config);
+        tokenRefreshed = true;
+        continue;
+      }
 
       const retryable =
         shopifyError.reason === 'throttled' ||
@@ -74,6 +88,7 @@ export async function shopifyGraphQL(request: GraphQLRequest): Promise<ShopifyGr
 async function executeOnce(
   config: ShopifyConfig,
   request: GraphQLRequest,
+  accessToken: string,
 ): Promise<ShopifyGraphQLResponse> {
   const body = JSON.stringify({
     query: request.query,
@@ -88,7 +103,7 @@ async function executeOnce(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        'X-Shopify-Access-Token': config.adminAccessToken,
+        'X-Shopify-Access-Token': accessToken,
       },
       body,
       cache: 'no-store',
@@ -132,7 +147,11 @@ async function executeOnce(
 
 function httpError(status: number): ShopifyError {
   if (status === 401) {
-    return new ShopifyError('unauthorized', 'Shopify rejected the access token.', status);
+    return new ShopifyError(
+      'unauthorized',
+      'Shopify rejected the access token. It is refreshed automatically, so a repeat failure points at the app credentials or its install on this store.',
+      status,
+    );
   }
   if (status === 402) {
     return new ShopifyError(

@@ -5,8 +5,13 @@ import { shopifyEnv } from '@/lib/config/env';
 /**
  * Shopify connection configuration, resolved from the environment.
  *
+ * This app authenticates with the **client credentials grant**: it exchanges a
+ * client ID and secret for a short-lived access token (see `token.ts`). There
+ * is no permanent `shpat_` token to store, which is the point — a leaked
+ * 24-hour token expires on its own, and rotating the secret revokes access.
+ *
  * Credentials live only in environment variables. Nothing here is ever sent to
- * the browser, and no default token or store exists in the codebase.
+ * the browser, and no default credential or store exists in the codebase.
  */
 
 /**
@@ -40,7 +45,10 @@ export type ShopifyConfig = {
   readonly apiVersion: string;
   /** Full Admin GraphQL endpoint. */
   readonly endpoint: string;
-  readonly adminAccessToken: string;
+  /** Where client credentials are exchanged for an access token. */
+  readonly tokenEndpoint: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
 };
 
 export class ShopifyConfigError extends Error {
@@ -51,9 +59,9 @@ export class ShopifyConfigError extends Error {
  * Normalise whatever was pasted into `SHOPIFY_STORE_DOMAIN` into the canonical
  * `<store>.myshopify.com` form, and reject anything else.
  *
- * This is a security control, not a convenience: the access token is sent to
- * whatever host this resolves to, so an unvalidated value would let a
- * mistyped — or tampered — variable leak the token to another server.
+ * This is a security control, not a convenience: the client secret is posted
+ * to whatever host this resolves to, so an unvalidated value would let a
+ * mistyped — or tampered — variable leak the credentials to another server.
  */
 export function normaliseShopDomain(value: string): string {
   const trimmed = value
@@ -82,14 +90,14 @@ function validateApiVersion(value: string): string {
   return value;
 }
 
-function validateAccessToken(value: string): string {
-  const token = value.trim();
+function validateCredential(value: string, name: string): string {
+  const credential = value.trim();
 
-  if (token.length === 0 || /\s/.test(token)) {
-    throw new ShopifyConfigError('SHOPIFY_ADMIN_ACCESS_TOKEN is empty or contains whitespace.');
+  if (credential.length === 0 || /\s/.test(credential)) {
+    throw new ShopifyConfigError(`${name} is empty or contains whitespace.`);
   }
 
-  return token;
+  return credential;
 }
 
 /** Resolve and validate the configuration. Throws `ShopifyConfigError` if unusable. */
@@ -102,6 +110,8 @@ export function getShopifyConfig(): ShopifyConfig {
     shopDomain,
     apiVersion,
     endpoint: `https://${shopDomain}/admin/api/${apiVersion}/graphql.json`,
-    adminAccessToken: validateAccessToken(env.adminAccessToken),
+    tokenEndpoint: `https://${shopDomain}/admin/oauth/access_token`,
+    clientId: validateCredential(env.clientId, 'SHOPIFY_CLIENT_ID'),
+    clientSecret: validateCredential(env.clientSecret, 'SHOPIFY_CLIENT_SECRET'),
   };
 }

@@ -48,31 +48,32 @@ export function serverEnv(): { supabaseServiceRoleKey: string } {
 }
 
 /**
- * Shopify Admin API credentials. Server-side only, and never prefixed
- * `NEXT_PUBLIC_` — the access token grants read access to the whole store.
+ * Shopify app credentials for the client credentials grant. Server-side only,
+ * and never prefixed `NEXT_PUBLIC_` — the client secret can mint access tokens
+ * for the whole store.
  */
 export function shopifyEnv(): {
   storeDomain: string;
-  adminAccessToken: string;
+  clientId: string;
+  clientSecret: string;
   apiVersion: string | undefined;
 } {
   assertServer('shopifyEnv()');
   return {
     storeDomain: required('SHOPIFY_STORE_DOMAIN', process.env.SHOPIFY_STORE_DOMAIN),
-    adminAccessToken: required(
-      'SHOPIFY_ADMIN_ACCESS_TOKEN',
-      process.env.SHOPIFY_ADMIN_ACCESS_TOKEN,
-    ),
+    clientId: required('SHOPIFY_CLIENT_ID', process.env.SHOPIFY_CLIENT_ID),
+    clientSecret: required('SHOPIFY_CLIENT_SECRET', process.env.SHOPIFY_CLIENT_SECRET),
     apiVersion: process.env.SHOPIFY_API_VERSION,
   };
 }
 
-/** True when both Shopify variables are present, without reading their values. */
+/** True when all Shopify variables are present, without reading their values. */
 export function isShopifyConfigured(): boolean {
   if (typeof window !== 'undefined') return false;
   return (
     (process.env.SHOPIFY_STORE_DOMAIN ?? '').length > 0 &&
-    (process.env.SHOPIFY_ADMIN_ACCESS_TOKEN ?? '').length > 0
+    (process.env.SHOPIFY_CLIENT_ID ?? '').length > 0 &&
+    (process.env.SHOPIFY_CLIENT_SECRET ?? '').length > 0
   );
 }
 
