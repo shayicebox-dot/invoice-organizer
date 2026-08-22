@@ -2,11 +2,13 @@
 
 Adapters for everything outside ICEBOX OS.
 
-- `shopify/` — Admin GraphQL client, connection test and order reads. Prepared,
-  not yet feeding the dashboard. See its README.
+- `shopify/` — Admin GraphQL client, connection test and order reads. Live: it
+  is the source for orders, revenue, discounts and refunds. See its README.
+- `meta/` — Marketing API client, connection test and Insights reads. Prepared,
+  not yet feeding a screen. See its README.
 
-Planned: `meta-ads/`, `google-ads/`, Israeli invoicing/accounting providers, and
-payment processors.
+Planned: `google-ads/`, Israeli invoicing/accounting providers, and payment
+processors.
 
 **Rules**
 

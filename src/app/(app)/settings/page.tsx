@@ -4,7 +4,8 @@ import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ShopifyConnectionCard } from '@/components/settings/shopify-connection-card';
-import { isShopifyConfigured } from '@/lib/config/env';
+import { MetaConnectionCard } from '@/components/settings/meta-connection-card';
+import { isMetaConfigured, isShopifyConfigured } from '@/lib/config/env';
 import { BUSINESS_CONFIG } from '@/lib/config/business';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -19,6 +20,7 @@ export const dynamic = 'force-dynamic';
 /** Settings is rendered on the server, so it can read configuration directly. */
 export default function SettingsPage() {
   const shopifyConfigured = isShopifyConfigured();
+  const metaConfigured = isMetaConfigured();
 
   return (
     <div className="flex flex-col gap-6">
@@ -30,6 +32,7 @@ export default function SettingsPage() {
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium tracking-tight text-foreground">Data sources</h2>
         <ShopifyConnectionCard configured={shopifyConfigured} />
+        <MetaConnectionCard configured={metaConfigured} />
       </section>
 
       <section className="flex flex-col gap-3">

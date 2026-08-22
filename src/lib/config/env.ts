@@ -100,6 +100,32 @@ export function isProduction(): boolean {
 }
 
 /**
+ * Meta Ads credentials. Server-side only, and never prefixed `NEXT_PUBLIC_` —
+ * the access token can read the whole ad account's spend and performance.
+ */
+export function metaEnv(): {
+  adAccountId: string;
+  accessToken: string;
+  apiVersion: string | undefined;
+} {
+  assertServer('metaEnv()');
+  return {
+    adAccountId: required('META_AD_ACCOUNT_ID', process.env.META_AD_ACCOUNT_ID),
+    accessToken: required('META_ACCESS_TOKEN', process.env.META_ACCESS_TOKEN),
+    apiVersion: process.env.META_API_VERSION,
+  };
+}
+
+/** True when both Meta variables are present, without reading their values. */
+export function isMetaConfigured(): boolean {
+  if (typeof window !== 'undefined') return false;
+  return (
+    (process.env.META_AD_ACCOUNT_ID ?? '').length > 0 &&
+    (process.env.META_ACCESS_TOKEN ?? '').length > 0
+  );
+}
+
+/**
  * Shared secret protecting the integration test endpoints until real
  * authentication exists. `null` means unset — endpoints then refuse to run
  * rather than defaulting to being publicly callable.

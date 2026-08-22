@@ -25,19 +25,26 @@ MVP dashboard over an empty data source. What exists:
 - Money primitives and pure metric calculations in `src/core`
 - Business and cost configuration in `src/lib/config/business.ts`
 - Shopify is the live source for orders, revenue, discounts and refunds
-- Placeholder pages for Sales, Marketing, Products and Expenses
-- Settings: Shopify connection status and a server-side "Test connection" check
+- Sales and Products read real Shopify orders; Marketing and Expenses are
+  placeholders
+- Settings: Shopify and Meta Ads connection status, each with a server-side
+  "Test connection" check
 - Single-owner login: password in `ICEBOX_ADMIN_PASSWORD`, signed HTTP-only
   session cookie, middleware protecting every page and action, sign-out button
 - Shopify Admin GraphQL integration in `src/integrations/shopify` — client
-  credentials auth, connection test and order reads, prepared but not yet
-  feeding the dashboard
+  credentials auth, connection test and order reads
+- Meta Ads Marketing API integration in `src/integrations/meta` — system user
+  token auth, connection test and Insights reads, prepared but not yet feeding
+  any screen
 
 What does **not** exist yet, and must not be invented ad hoc:
 
 - The financial database schema (no Supabase tables, no queries)
 - VAT, tax, inventory and cash-flow modelling
-- Meta Ads, Google Ads, invoicing and payment integrations
+- Google Ads, invoicing and payment integrations
+- Meta spend on the dashboard (Marketing spend, CPA, ROAS) and the Marketing
+  page's campaign table — the integration is ready, the wiring is deliberately
+  a separate step
 - Storage of imported Shopify orders (each page load reads Shopify live)
 - COGS, and every metric that depends on it
 - Any real or sample financial data
@@ -126,7 +133,8 @@ src/
 │   ├── dashboard-source.ts     dashboard totals, daily series, recent orders
 │   └── sales-source.ts         order-level and product-level reads
 ├── integrations/               external systems — server only
-│   └── shopify/                Admin GraphQL client, connection test, orders
+│   ├── shopify/                Admin GraphQL client, connection test, orders
+│   └── meta/                   Marketing API client, connection test, insights
 ├── lib/
 │   ├── auth/session.ts         signed session token (Edge + Node safe)
 │   ├── auth/actions.ts         sign in and sign out (server actions)
@@ -249,6 +257,9 @@ deliberately — never hardcoded to today's values.
 - **Prefer short-lived credentials.** Shopify authenticates through the client
   credentials grant: a 24-hour token minted from the client secret, cached in
   memory and refreshed before expiry. No long-lived API token is stored.
+- **Credentials travel in headers, never in URLs.** Meta accepts its access
+  token as a query parameter; ICEBOX sends it as `Authorization: Bearer`
+  instead, because query strings reach server logs, proxies and error reports.
 - **One owner, one password.** `ICEBOX_ADMIN_PASSWORD` is the login credential
   and the key that signs session cookies, so rotating it signs every device out.
   `src/proxy.ts` requires a valid session for every route except the login
