@@ -14,6 +14,7 @@ import { computeDashboardMetrics } from '@/core/metrics/dashboard';
 import type { MetricId } from '@/core/metrics/types';
 import { parsePeriodPreset, resolvePeriod } from '@/core/period';
 import { connectedSourceCount, getDashboardData } from '@/data/dashboard-source';
+import { DataNotices } from '@/components/sales/data-notices';
 import { todayInBusinessTimeZone } from '@/lib/utils/today';
 import { formatDateRange } from '@/lib/utils/format';
 
@@ -55,16 +56,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     <div className="flex flex-col gap-6">
       <PageHeader
         title="Dashboard"
-        description={`Financial overview for ${formatDateRange(range)}.`}
+        description={`Financial overview for ${formatDateRange(data.range)}.`}
         actions={
           <>
-            <PeriodSelector active={preset} />
+            <PeriodSelector active={preset} basePath="/dashboard" />
             <Badge tone={connected > 0 ? 'positive' : 'neutral'}>
               {connected > 0 ? `${connected} sources live` : 'No data sources'}
             </Badge>
           </>
         }
       />
+
+      <DataNotices caveats={data.caveats} />
 
       <section aria-label="Key figures">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
@@ -84,14 +87,14 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <div>
             <CardTitle>Daily performance</CardTitle>
             <CardDescription>
-              Revenue per day across {formatDateRange(range)}.
+              Net revenue per day across {formatDateRange(data.range)}.
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent>
           <DailyPerformanceChart
             series={data.daily}
-            range={range}
+            range={data.range}
             currency={data.inputs.currency}
           />
         </CardContent>

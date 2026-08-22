@@ -11,11 +11,14 @@ import { SESSION_COOKIE_NAME, verifySessionToken } from '@/lib/auth/session';
  * matcher mistake cannot silently expose one.
  *
  * It fails closed: with `ICEBOX_ADMIN_PASSWORD` unset, nothing is reachable.
+ *
+ * This is Next.js's `proxy` file convention, which replaced `middleware` — the
+ * old name still works but is deprecated.
  */
 
 const LOGIN_PATH = '/login';
 
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   const password = process.env.ICEBOX_ADMIN_PASSWORD ?? '';
 
   if (password.length === 0) {

@@ -24,10 +24,14 @@ export function KpiCard({ metric, emphasis = false }: KpiCardProps) {
       <p className="text-xs font-medium text-foreground-muted">{metric.label}</p>
 
       {value === null ? (
-        <p className="mt-3 flex items-center gap-1.5 text-sm text-foreground-subtle">
-          <span aria-hidden="true" className="size-1.5 rounded-full bg-foreground-subtle/50" />
-          {NOT_CONNECTED_LABEL}
-        </p>
+        metric.unavailableKind === 'not-computable' ? (
+          <p className="numeric mt-3 text-xl text-foreground-subtle">—</p>
+        ) : (
+          <p className="mt-3 flex items-center gap-1.5 text-sm text-foreground-subtle">
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-foreground-subtle/50" />
+            {NOT_CONNECTED_LABEL}
+          </p>
+        )
       ) : (
         <p
           className={cn(

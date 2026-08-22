@@ -42,7 +42,7 @@ export async function checkShopifyConnection(): Promise<ShopifyConnectionView> {
   const now = Date.now();
   const checkedAt = new Date(now).toISOString();
 
-  // Middleware already blocks unauthenticated requests. Checking again here
+  // The proxy already blocks unauthenticated requests. Checking again here
   // means this action stays safe on its own merits, rather than depending on a
   // matcher pattern in another file staying correct.
   if (!(await hasValidSession())) {

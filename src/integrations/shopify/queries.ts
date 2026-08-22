@@ -4,6 +4,10 @@
  * Every document here was validated against the live Admin schema. Keep them
  * in this file rather than inline at call sites, so a version upgrade has one
  * place to review.
+ *
+ * Money is always requested as `shopMoney`: figures are reported in the store's
+ * own currency, never the customer's presentment currency, so amounts across
+ * orders are directly comparable.
  */
 
 /** Store identity and settings — the cheapest possible connectivity check. */
@@ -30,31 +34,49 @@ export const ACCESS_SCOPES_QUERY = `
 `;
 
 /**
- * One page of orders in a period.
+ * Orders without line items — everything the dashboard totals need.
  *
- * Money is requested as `shopMoney` throughout: figures are reported in the
- * store's own currency, never the customer's presentment currency, so amounts
- * across orders are directly comparable.
+ * Deliberately separate from the detailed query: line items multiply the
+ * query's cost against Shopify's rate limit, and the KPI row does not use them.
  */
-export const ORDERS_QUERY = `
-  query IceboxOrders($first: Int!, $after: String, $query: String!, $lineItems: Int!) {
+export const ORDERS_SUMMARY_QUERY = `
+  query IceboxOrdersSummary($first: Int!, $after: String, $query: String!) {
     orders(first: $first, after: $after, query: $query, sortKey: PROCESSED_AT) {
       pageInfo { hasNextPage endCursor }
       nodes {
         id
         name
-        createdAt
         processedAt
         cancelledAt
         test
+        taxesIncluded
         displayFinancialStatus
-        currencyCode
         subtotalPriceSet { shopMoney { amount currencyCode } }
         totalDiscountsSet { shopMoney { amount currencyCode } }
         totalRefundedSet { shopMoney { amount currencyCode } }
-        totalPriceSet { shopMoney { amount currencyCode } }
-        netPaymentSet { shopMoney { amount currencyCode } }
-        customer { id numberOfOrders }
+        customer { id displayName }
+      }
+    }
+  }
+`;
+
+/** Orders with their line items — for the Sales and Products screens. */
+export const ORDERS_DETAILED_QUERY = `
+  query IceboxOrdersDetailed($first: Int!, $after: String, $query: String!, $lineItems: Int!) {
+    orders(first: $first, after: $after, query: $query, sortKey: PROCESSED_AT) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        name
+        processedAt
+        cancelledAt
+        test
+        taxesIncluded
+        displayFinancialStatus
+        subtotalPriceSet { shopMoney { amount currencyCode } }
+        totalDiscountsSet { shopMoney { amount currencyCode } }
+        totalRefundedSet { shopMoney { amount currencyCode } }
+        customer { id displayName }
         lineItems(first: $lineItems) {
           pageInfo { hasNextPage }
           nodes {
@@ -63,10 +85,8 @@ export const ORDERS_QUERY = `
             sku
             quantity
             originalUnitPriceSet { shopMoney { amount currencyCode } }
-            originalTotalSet { shopMoney { amount currencyCode } }
             discountedTotalSet { shopMoney { amount currencyCode } }
-            product { id title }
-            variant { id sku }
+            product { id }
           }
         }
       }

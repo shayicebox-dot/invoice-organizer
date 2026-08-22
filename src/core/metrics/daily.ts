@@ -2,14 +2,18 @@ import type { Money } from '@/core/money';
 
 /**
  * One day of the performance series.
- * A day with no source data is absent from the series — it is never emitted as
- * a zero, which would draw a line along the floor as if we had measured it.
+ *
+ * Within a window a source fully covers, a day with no orders is a measured
+ * zero and belongs in the series. A day outside that window is absent
+ * entirely — never emitted as a zero, which would draw a line along the floor
+ * as if we had measured it.
  */
 export type DailyPoint = {
   /** `YYYY-MM-DD`. */
   readonly date: string;
   readonly revenue: Money;
-  readonly marketingSpend: Money;
+  /** `null` until an ad platform is connected — never a stand-in zero. */
+  readonly marketingSpend: Money | null;
   readonly orders: number;
 };
 
