@@ -47,6 +47,17 @@ export type MetricValue =
  * `value === null` means the metric could not be computed. `unavailableReason`
  * then says why, so the UI never has to guess between "zero" and "unknown".
  */
+/**
+ * Why a metric has no value.
+ *
+ * `missing-input` — no source supplies one of its inputs yet. The screen says
+ * "Not connected", because connecting something would produce a figure.
+ * `not-computable` — the inputs are present but the figure is undefined for
+ * them, such as an average with no orders to average. The screen shows a dash:
+ * nothing is missing, there is simply no such number.
+ */
+export type UnavailableKind = 'missing-input' | 'not-computable';
+
 export type Metric = {
   readonly id: string;
   readonly label: string;
@@ -54,6 +65,7 @@ export type Metric = {
   readonly dependsOn: readonly InputId[];
   readonly value: MetricValue | null;
   readonly unavailableReason: string | null;
+  readonly unavailableKind: UnavailableKind | null;
 };
 
 export type MetricId =

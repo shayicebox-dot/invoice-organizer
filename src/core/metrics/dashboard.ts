@@ -69,15 +69,26 @@ function buildMetric(
   const missing = missingInputs(inputs, spec.dependsOn);
 
   if (missing.length > 0) {
-    return { ...spec, value: null, unavailableReason: describeMissing(missing) };
+    return {
+      ...spec,
+      value: null,
+      unavailableReason: describeMissing(missing),
+      unavailableKind: 'missing-input',
+    };
   }
 
   const value = compute();
-  return {
-    ...spec,
-    value,
-    unavailableReason: value === null ? 'Not enough data to compute' : null,
-  };
+
+  if (value === null) {
+    return {
+      ...spec,
+      value: null,
+      unavailableReason: 'Not defined for this period',
+      unavailableKind: 'not-computable',
+    };
+  }
+
+  return { ...spec, value, unavailableReason: null, unavailableKind: null };
 }
 
 function moneyValue(amount: Money): MetricValue {

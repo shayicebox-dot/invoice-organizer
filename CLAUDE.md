@@ -24,7 +24,7 @@ MVP dashboard over an empty data source. What exists:
 - Period switcher (today / 7d / 30d / MTD / YTD) via `?period=`
 - Money primitives and pure metric calculations in `src/core`
 - Business and cost configuration in `src/lib/config/business.ts`
-- A single data seam, `src/data/dashboard-source.ts`, returning empties
+- Shopify is the live source for orders, revenue, discounts and refunds
 - Placeholder pages for Sales, Marketing, Products and Expenses
 - Settings: Shopify connection status and a server-side "Test connection" check
 - Single-owner login: password in `ICEBOX_ADMIN_PASSWORD`, signed HTTP-only
@@ -38,11 +38,13 @@ What does **not** exist yet, and must not be invented ad hoc:
 - The financial database schema (no Supabase tables, no queries)
 - VAT, tax, inventory and cash-flow modelling
 - Meta Ads, Google Ads, invoicing and payment integrations
-- Storage of imported Shopify orders, and any metric computed from them
+- Storage of imported Shopify orders (each page load reads Shopify live)
+- COGS, and every metric that depends on it
 - Any real or sample financial data
 
-Connecting real data means changing `src/data/dashboard-source.ts` to read from
-repositories. The calculations and the UI above it should not need to change.
+Shopify orders are read live on each page load and aggregated in `src/core`;
+nothing is stored yet. Without the `read_all_orders` scope Shopify serves only
+the last 60 days, so a longer period is trimmed and the screen says so.
 
 The repo also contains an unrelated legacy Python script (`invoices.py`) that
 downloads invoice attachments from Gmail. It is not part of ICEBOX OS. Leave it
@@ -117,10 +119,12 @@ src/
 │   └── ui/                     Card, Badge, PageHeader, EmptyState
 ├── core/                       business logic — pure, no I/O
 │   ├── money.ts                integer minor units, decimal parsing, no floats
-│   ├── period.ts               reporting ranges over YYYY-MM-DD
-│   └── metrics/                dashboard calculations + types
+│   ├── period.ts               reporting ranges, timezone bucketing, clamping
+│   └── metrics/                dashboard + sales calculations, types
 ├── data/
-│   └── dashboard-source.ts     the seam where real data arrives (empty today)
+│   ├── shopify-orders.ts       Shopify payloads → SalesOrder (the mapping)
+│   ├── dashboard-source.ts     dashboard totals, daily series, recent orders
+│   └── sales-source.ts         order-level and product-level reads
 ├── integrations/               external systems — server only
 │   └── shopify/                Admin GraphQL client, connection test, orders
 ├── lib/
@@ -179,9 +183,24 @@ mix currencies in a sum.
 An empty state is correct; a plausible-looking fake number is a defect. Real
 figures appear only once they come from a real source through a real calculation.
 
+**Sales definitions are fixed in one place.**
+Gross sales are product prices before discounts, reconstructed as Shopify's
+`subtotalPrice + totalDiscounts` — at order level, because line items paginate.
+Net revenue is gross − discounts − refunds. AOV is net revenue ÷ orders. These
+live in `src/core/metrics/sales.ts` and are not re-derived per screen.
+
+**Say what a figure does not include.**
+Where the store prices tax-inclusively, Shopify's amounts carry VAT, and the
+screen says so rather than presenting a VAT-inclusive total as revenue. The same
+applies to a period trimmed to available history, and to totals read from an
+incomplete page sweep.
+
 **Missing is not zero.**
 A metric with no source reports "Not connected" (KPI tiles) or a dash (breakdown
-rows), never `0`. `PeriodInputs` uses `null` for "no source yet", and any metric
+rows), never `0`. A metric whose inputs exist but whose value is undefined — an
+average over no orders — shows a dash instead, distinguished by
+`unavailableKind`. Within a window a source fully covers, a day with no orders
+is a measured zero and is charted as one. `PeriodInputs` uses `null` for "no source yet", and any metric
 depending on a null input is unavailable rather than computed. A chart with no
 data draws an empty frame, not a line along the floor.
 
@@ -232,12 +251,12 @@ deliberately — never hardcoded to today's values.
   memory and refreshed before expiry. No long-lived API token is stored.
 - **One owner, one password.** `ICEBOX_ADMIN_PASSWORD` is the login credential
   and the key that signs session cookies, so rotating it signs every device out.
-  `src/middleware.ts` requires a valid session for every route except the login
+  `src/proxy.ts` requires a valid session for every route except the login
   screen; unset means nothing is reachable, never everything.
 - **Sessions are signed, not stored.** The cookie is HTTP-only, `SameSite=Lax`,
   `Secure` in production, and holds only a signed expiry — no password, no
   derived key. Actions touching real data re-check the session themselves rather
-  than trusting the middleware matcher.
+  than trusting the proxy matcher.
 - **Diagnostic endpoints fail closed.** `/api/integrations/*/test` requires
   `ICEBOX_INTEGRATION_TEST_SECRET`; unset means disabled, never public.
 - **Server actions return explicit view models.** An action feeding the browser

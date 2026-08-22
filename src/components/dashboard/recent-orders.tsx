@@ -17,7 +17,10 @@ export function RecentOrders({ orders, currency }: RecentOrdersProps) {
       <CardHeader>
         <div>
           <CardTitle>Recent orders</CardTitle>
-          <CardDescription>The most recent orders in the selected period.</CardDescription>
+          <CardDescription>
+            The most recent orders in the selected period. Total is net revenue: gross sales less
+            discounts and refunds.
+          </CardDescription>
         </div>
       </CardHeader>
       <CardContent>
@@ -57,7 +60,11 @@ export function RecentOrders({ orders, currency }: RecentOrdersProps) {
                     </td>
                     <td className="px-2 py-2.5 text-foreground-muted">{order.customer}</td>
                     <td className="numeric px-2 py-2.5 text-foreground-muted">
-                      {formatCount(order.itemCount)}
+                      {order.itemCount === null ? (
+                        <span title="Line items are not loaded on this screen">—</span>
+                      ) : (
+                        formatCount(order.itemCount)
+                      )}
                     </td>
                     <td className="numeric px-2 py-2.5 text-foreground">
                       {formatMoney(money(order.totalMinorUnits, currency))}

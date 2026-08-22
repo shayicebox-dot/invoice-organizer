@@ -82,3 +82,52 @@ export function resolvePeriod(preset: PeriodPreset, today: string): DateRange {
       return { start: `${today.slice(0, 4)}-01-01`, end: today };
   }
 }
+
+/**
+ * The calendar day an instant belongs to, in the given timezone.
+ *
+ * Which day an order counts towards is a business decision, not a UTC fact: an
+ * order placed at 00:30 in Jerusalem belongs to that day locally but to the
+ * previous day in UTC. `en-CA` formats as `YYYY-MM-DD`.
+ */
+export function instantToDateInTimeZone(instant: string, timeZone: string): string {
+  const parsed = new Date(instant);
+
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Expected an ISO timestamp, received "${instant}".`);
+  }
+
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(parsed);
+}
+
+export type ClampedRange = {
+  readonly range: DateRange;
+  /** True when the requested range started before the available history. */
+  readonly truncated: boolean;
+  /** The requested start, kept so the UI can say what was asked for. */
+  readonly requestedStart: string;
+};
+
+/**
+ * Trim a range to the history a source actually provides.
+ *
+ * Returning the trimmed range plus a flag — rather than quietly shortening it —
+ * lets the screen say which period is really being shown. A figure labelled
+ * "year to date" that silently covers 60 days is a wrong number.
+ */
+export function clampRangeToAvailable(range: DateRange, earliest: string | null): ClampedRange {
+  if (earliest === null || range.start >= earliest) {
+    return { range, truncated: false, requestedStart: range.start };
+  }
+
+  return {
+    range: { start: earliest, end: range.end },
+    truncated: true,
+    requestedStart: range.start,
+  };
+}

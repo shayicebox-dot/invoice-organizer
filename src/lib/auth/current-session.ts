@@ -9,7 +9,7 @@ import { adminPassword } from '@/lib/config/env';
  *
  * Deliberately not in `actions.ts`: every exported function in a `'use server'`
  * module becomes a callable endpoint, and this is an internal check with no
- * business being one. Middleware already blocks unauthenticated requests — this
+ * business being one. The proxy already blocks unauthenticated requests — this
  * exists so an action touching real data can verify for itself rather than
  * trusting that a matcher pattern in another file stayed correct.
  */
