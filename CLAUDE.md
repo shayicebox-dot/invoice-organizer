@@ -27,6 +27,8 @@ MVP dashboard over an empty data source. What exists:
 - A single data seam, `src/data/dashboard-source.ts`, returning empties
 - Placeholder pages for Sales, Marketing, Products and Expenses
 - Settings: Shopify connection status and a server-side "Test connection" check
+- Single-owner login: password in `ICEBOX_ADMIN_PASSWORD`, signed HTTP-only
+  session cookie, middleware protecting every page and action, sign-out button
 - Shopify Admin GraphQL integration in `src/integrations/shopify` — client
   credentials auth, connection test and order reads, prepared but not yet
   feeding the dashboard
@@ -37,7 +39,6 @@ What does **not** exist yet, and must not be invented ad hoc:
 - VAT, tax, inventory and cash-flow modelling
 - Meta Ads, Google Ads, invoicing and payment integrations
 - Storage of imported Shopify orders, and any metric computed from them
-- Authentication flows and route protection
 - Any real or sample financial data
 
 Connecting real data means changing `src/data/dashboard-source.ts` to read from
@@ -102,6 +103,7 @@ be used by any layer, subject to the server/client rules in §7.
 src/
 ├── app/
 │   ├── layout.tsx              root layout, fonts, theme bootstrap
+│   ├── login/                  the only page reachable without a session
 │   ├── page.tsx                redirects to /dashboard
 │   ├── globals.css             design tokens + Tailwind entry
 │   └── (app)/                  authenticated application shell
@@ -122,6 +124,9 @@ src/
 ├── integrations/               external systems — server only
 │   └── shopify/                Admin GraphQL client, connection test, orders
 ├── lib/
+│   ├── auth/session.ts         signed session token (Edge + Node safe)
+│   ├── auth/actions.ts         sign in and sign out (server actions)
+│   ├── auth/current-session.ts is this request signed in?
 │   ├── config/business.ts      business facts and cost assumptions
 │   ├── config/env.ts           the only place that reads process.env
 │   ├── config/navigation.ts    single source of truth for navigation
@@ -225,6 +230,14 @@ deliberately — never hardcoded to today's values.
 - **Prefer short-lived credentials.** Shopify authenticates through the client
   credentials grant: a 24-hour token minted from the client secret, cached in
   memory and refreshed before expiry. No long-lived API token is stored.
+- **One owner, one password.** `ICEBOX_ADMIN_PASSWORD` is the login credential
+  and the key that signs session cookies, so rotating it signs every device out.
+  `src/middleware.ts` requires a valid session for every route except the login
+  screen; unset means nothing is reachable, never everything.
+- **Sessions are signed, not stored.** The cookie is HTTP-only, `SameSite=Lax`,
+  `Secure` in production, and holds only a signed expiry — no password, no
+  derived key. Actions touching real data re-check the session themselves rather
+  than trusting the middleware matcher.
 - **Diagnostic endpoints fail closed.** `/api/integrations/*/test` requires
   `ICEBOX_INTEGRATION_TEST_SECRET`; unset means disabled, never public.
 - **Server actions return explicit view models.** An action feeding the browser

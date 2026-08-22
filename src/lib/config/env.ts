@@ -78,6 +78,28 @@ export function isShopifyConfigured(): boolean {
 }
 
 /**
+ * The single owner password. Server-side only: it is the login credential and
+ * the key that signs session cookies, so it must never reach the browser.
+ * `null` means unset — the app then refuses every request rather than opening
+ * itself up.
+ */
+export function adminPassword(): string | null {
+  if (typeof window !== 'undefined') return null;
+  const password = process.env.ICEBOX_ADMIN_PASSWORD ?? '';
+  return password.length > 0 ? password : null;
+}
+
+/** True when a login password is configured, without reading its value. */
+export function isAuthConfigured(): boolean {
+  return adminPassword() !== null;
+}
+
+/** Production build, used to decide whether cookies may be `Secure`. */
+export function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production';
+}
+
+/**
  * Shared secret protecting the integration test endpoints until real
  * authentication exists. `null` means unset — endpoints then refuse to run
  * rather than defaulting to being publicly callable.
