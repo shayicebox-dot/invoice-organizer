@@ -30,17 +30,61 @@ export function requirePublicEnv(): { supabaseUrl: string; supabaseAnonKey: stri
   };
 }
 
+function assertServer(caller: string): void {
+  if (typeof window !== 'undefined') {
+    throw new Error(`${caller} was called in the browser. Secrets must never leave the server.`);
+  }
+}
+
 /** Secrets. Server-side only — calling this in the browser is a bug. */
 export function serverEnv(): { supabaseServiceRoleKey: string } {
-  if (typeof window !== 'undefined') {
-    throw new Error('serverEnv() was called in the browser. Secrets must never leave the server.');
-  }
+  assertServer('serverEnv()');
   return {
     supabaseServiceRoleKey: required(
       'SUPABASE_SERVICE_ROLE_KEY',
       process.env.SUPABASE_SERVICE_ROLE_KEY,
     ),
   };
+}
+
+/**
+ * Shopify Admin API credentials. Server-side only, and never prefixed
+ * `NEXT_PUBLIC_` — the access token grants read access to the whole store.
+ */
+export function shopifyEnv(): {
+  storeDomain: string;
+  adminAccessToken: string;
+  apiVersion: string | undefined;
+} {
+  assertServer('shopifyEnv()');
+  return {
+    storeDomain: required('SHOPIFY_STORE_DOMAIN', process.env.SHOPIFY_STORE_DOMAIN),
+    adminAccessToken: required(
+      'SHOPIFY_ADMIN_ACCESS_TOKEN',
+      process.env.SHOPIFY_ADMIN_ACCESS_TOKEN,
+    ),
+    apiVersion: process.env.SHOPIFY_API_VERSION,
+  };
+}
+
+/** True when both Shopify variables are present, without reading their values. */
+export function isShopifyConfigured(): boolean {
+  if (typeof window !== 'undefined') return false;
+  return (
+    (process.env.SHOPIFY_STORE_DOMAIN ?? '').length > 0 &&
+    (process.env.SHOPIFY_ADMIN_ACCESS_TOKEN ?? '').length > 0
+  );
+}
+
+/**
+ * Shared secret protecting the integration test endpoints until real
+ * authentication exists. `null` means unset — endpoints then refuse to run
+ * rather than defaulting to being publicly callable.
+ */
+export function integrationTestSecret(): string | null {
+  assertServer('integrationTestSecret()');
+  const secret = process.env.ICEBOX_INTEGRATION_TEST_SECRET ?? '';
+  return secret.length > 0 ? secret : null;
 }
 
 /** True when Supabase credentials are configured — lets the shell render without them. */

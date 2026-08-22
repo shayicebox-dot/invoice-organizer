@@ -26,12 +26,15 @@ MVP dashboard over an empty data source. What exists:
 - Business and cost configuration in `src/lib/config/business.ts`
 - A single data seam, `src/data/dashboard-source.ts`, returning empties
 - Placeholder pages for Sales, Marketing, Products, Expenses, Settings
+- Shopify Admin GraphQL integration in `src/integrations/shopify` — client,
+  connection test and order reads, prepared but not yet feeding the dashboard
 
 What does **not** exist yet, and must not be invented ad hoc:
 
 - The financial database schema (no Supabase tables, no queries)
 - VAT, tax, inventory and cash-flow modelling
-- Any integration (Shopify, Meta Ads, Google Ads, invoicing systems, payments)
+- Meta Ads, Google Ads, invoicing and payment integrations
+- Storage of imported Shopify orders, and any metric computed from them
 - Authentication flows and route protection
 - Any real or sample financial data
 
@@ -109,12 +112,13 @@ src/
 │   ├── layout/                 AppShell, sidebar, topbar, theme, placeholders
 │   └── ui/                     Card, Badge, PageHeader, EmptyState
 ├── core/                       business logic — pure, no I/O
-│   ├── money.ts                integer minor units, no floats
+│   ├── money.ts                integer minor units, decimal parsing, no floats
 │   ├── period.ts               reporting ranges over YYYY-MM-DD
 │   └── metrics/                dashboard calculations + types
 ├── data/
 │   └── dashboard-source.ts     the seam where real data arrives (empty today)
-├── integrations/               external systems — server only         (empty)
+├── integrations/               external systems — server only
+│   └── shopify/                Admin GraphQL client, connection test, orders
 ├── lib/
 │   ├── config/business.ts      business facts and cost assumptions
 │   ├── config/env.ts           the only place that reads process.env
@@ -211,6 +215,13 @@ deliberately — never hardcoded to today's values.
 - `process.env` is read only in `src/lib/config/env.ts`.
 - Financial data is never sent to third parties, logged in plaintext, or included
   in client-side error reporting.
+- **Integration credentials are server-only.** Every file in
+  `src/integrations` imports `server-only`. An external host that receives a
+  credential is validated before the request is made — see
+  `normaliseShopDomain`, which refuses to send the Shopify token anywhere but
+  `<store>.myshopify.com`.
+- **Diagnostic endpoints fail closed.** `/api/integrations/*/test` requires
+  `ICEBOX_INTEGRATION_TEST_SECRET`; unset means disabled, never public.
 - `.env.local` is git-ignored. `.env.example` documents variable names only —
   never values.
 
