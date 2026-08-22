@@ -15,5 +15,15 @@ Pure TypeScript. The financial brain of ICEBOX OS.
 - Every calculated figure must carry enough information to explain itself:
   inputs used, rates applied, and the source records it came from.
 
-Planned sub-modules (none implemented yet): `money/`, `vat/`, `revenue/`,
-`cogs/`, `profit/`, `tax/`, `cash-flow/`.
+**What is here**
+
+- `money.ts` — `Money` as integer minor units + currency; add/subtract/divide,
+  ratios, basis-point rates. No floats, no implicit conversion.
+- `period.ts` — reporting ranges over `YYYY-MM-DD`, computed in UTC from a
+  "today" the caller supplies, so the maths stays pure.
+- `metrics/` — dashboard figures. `types.ts` defines `PeriodInputs` (where
+  `null` means "no source yet") and `Metric` (value plus formula plus the inputs
+  it consumed); `dashboard.ts` computes revenue, AOV, ROAS, CPA, gross profit,
+  net profit and net margin.
+
+Planned later: `vat/`, `tax/`, `inventory/`, `cash-flow/`.

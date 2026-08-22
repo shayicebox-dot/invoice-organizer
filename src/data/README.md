@@ -15,5 +15,11 @@ The only layer allowed to talk to Supabase/PostgreSQL for application data.
 - Never mutate imported source records in place. Corrections are new rows, so
   history stays auditable.
 
-The financial schema has not been designed yet — this directory is
-intentionally empty.
+**What is here**
+
+`dashboard-source.ts` is the single seam between the dashboard and its data. It
+currently returns empty inputs and empty lists, so the UI renders "Not
+connected" everywhere. When the schema exists it starts reading repositories —
+and nothing above it has to change.
+
+The financial schema has not been designed yet, so there are no queries.

@@ -14,21 +14,29 @@ Everything below is binding for anyone — human or agent — working in this re
 
 ## 1. Current state
 
-The application shell only. What exists:
+MVP dashboard over an empty data source. What exists:
 
 - Next.js App Router + TypeScript (strict) + Tailwind CSS v4
-- Supabase client factories (browser / server / service-role)
+- Supabase client factories (browser / server / service-role) — installed, not used yet
 - Dashboard layout: sidebar, top bar, responsive desktop and mobile chrome
-- Empty Dashboard page and placeholder pages for every planned module
-- Layer directories with their boundary rules
+- Dashboard: 10 KPI tiles, revenue overview, marketing performance, profit
+  breakdown, daily performance chart, recent orders table, data-source panel
+- Period switcher (today / 7d / 30d / MTD / YTD) via `?period=`
+- Money primitives and pure metric calculations in `src/core`
+- Business and cost configuration in `src/lib/config/business.ts`
+- A single data seam, `src/data/dashboard-source.ts`, returning empties
+- Placeholder pages for Sales, Marketing, Products, Expenses, Settings
 
 What does **not** exist yet, and must not be invented ad hoc:
 
-- The financial database schema
-- Any financial calculation
+- The financial database schema (no Supabase tables, no queries)
+- VAT, tax, inventory and cash-flow modelling
 - Any integration (Shopify, Meta Ads, Google Ads, invoicing systems, payments)
 - Authentication flows and route protection
 - Any real or sample financial data
+
+Connecting real data means changing `src/data/dashboard-source.ts` to read from
+repositories. The calculations and the UI above it should not need to change.
 
 The repo also contains an unrelated legacy Python script (`invoices.py`) that
 downloads invoice attachments from Gmail. It is not part of ICEBOX OS. Leave it
@@ -93,24 +101,30 @@ src/
 │   ├── globals.css             design tokens + Tailwind entry
 │   └── (app)/                  authenticated application shell
 │       ├── layout.tsx          renders <AppShell>
-│       ├── dashboard/          overview (empty)
-│       ├── sales/  products/  inventory/
-│       ├── marketing/  expenses/
-│       ├── vat/  taxes/  cash-flow/
+│       ├── dashboard/          KPIs, sections, chart, orders table
+│       ├── sales/  marketing/  products/  expenses/
 │       └── settings/
 ├── components/
+│   ├── dashboard/              KPI tile, metric row, sections, chart
 │   ├── layout/                 AppShell, sidebar, topbar, theme, placeholders
 │   └── ui/                     Card, Badge, PageHeader, EmptyState
-├── core/                       business logic — pure, no I/O          (empty)
-├── data/                       database access — server only          (empty)
+├── core/                       business logic — pure, no I/O
+│   ├── money.ts                integer minor units, no floats
+│   ├── period.ts               reporting ranges over YYYY-MM-DD
+│   └── metrics/                dashboard calculations + types
+├── data/
+│   └── dashboard-source.ts     the seam where real data arrives (empty today)
 ├── integrations/               external systems — server only         (empty)
 ├── lib/
+│   ├── config/business.ts      business facts and cost assumptions
 │   ├── config/env.ts           the only place that reads process.env
 │   ├── config/navigation.ts    single source of truth for navigation
 │   ├── supabase/client.ts      browser client (anon key, RLS)
 │   ├── supabase/server.ts      server client (user session, RLS)
 │   ├── supabase/admin.ts       service-role client — server only
-│   └── utils/cn.ts             Tailwind class merge
+│   ├── utils/cn.ts             Tailwind class merge
+│   ├── utils/format.ts         currency, date and percentage formatting
+│   └── utils/today.ts          today in the business timezone
 └── types/                      shared types, generated DB types
 ```
 
@@ -153,6 +167,12 @@ mix currencies in a sum.
 **No sample, mock or estimated data in the UI.**
 An empty state is correct; a plausible-looking fake number is a defect. Real
 figures appear only once they come from a real source through a real calculation.
+
+**Missing is not zero.**
+A metric with no source reports "Not connected" (KPI tiles) or a dash (breakdown
+rows), never `0`. `PeriodInputs` uses `null` for "no source yet", and any metric
+depending on a null input is unavailable rather than computed. A chart with no
+data draws an empty frame, not a line along the floor.
 
 **Israeli context is a first-class concern.**
 VAT (including rate changes over time), VAT reporting periods, zero-rated
@@ -207,7 +227,11 @@ beyond a hairline, no marketing flourish. This is an internal tool used daily.
   palette colours (`bg-blue-500`) in components.
 - Both light and dark themes must work. The `dark` class on `<html>` is the
   source of truth.
-- Numbers use the `.numeric` class (tabular figures) so columns align.
+- Columns of numbers use the `.numeric` class (tabular figures) so they align.
+  Standalone display values (KPI tiles) use proportional figures — tabular digits
+  look loose at large sizes.
+- Charts: hairline solid gridlines, 2px lines, ~10% area washes, axis ticks on
+  round numbers, and labels only at the extremes — never on every point.
 - Server Components by default. `'use client'` only where interactivity or
   browser APIs are genuinely required, and as far down the tree as possible.
 - Layout is responsive: sidebar collapses to a drawer below `lg`.
@@ -225,8 +249,11 @@ beyond a hairline, no marketing flourish. This is an internal tool used daily.
    calls → `src/integrations/<provider>/`.
 4. The page composes; it does not calculate.
 
-Planned modules: Dashboard, Sales, Products, Inventory, Marketing, Expenses,
-VAT, Taxes, Cash Flow, Settings.
+Current modules: Dashboard, Sales, Marketing, Products, Expenses, Settings.
+
+Planned for later, once there is real data behind them: Inventory, VAT, Taxes,
+Cash Flow. Their placeholder routes were removed from the MVP rather than left
+unreachable in the sidebar.
 
 ---
 
@@ -234,8 +261,11 @@ VAT, Taxes, Cash Flow, Settings.
 
 - Run `npm run check` before committing. Both must pass.
 - Do not add dependencies without a clear reason; prefer the platform.
-- Do not build the financial schema or calculations until they are explicitly
-  requested — an approximate implementation is worse than none in this system.
+- Do not build the financial schema, VAT/tax logic or integrations until they
+  are explicitly requested — an approximate implementation is worse than none in
+  this system.
+- New figures go through `src/core` and carry their formula and inputs. A page
+  composes metrics; it never computes one.
 - When a financial requirement is ambiguous (rounding, VAT treatment, cost
   allocation, refund handling), ask. Do not guess and do not silently pick a
   convention.

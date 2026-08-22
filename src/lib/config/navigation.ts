@@ -3,13 +3,9 @@ import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
   ShoppingCart,
-  Package,
-  Boxes,
   Megaphone,
+  Package,
   Receipt,
-  Percent,
-  Landmark,
-  Wallet,
   Settings,
 } from 'lucide-react';
 
@@ -32,6 +28,9 @@ export type NavSection = {
 /**
  * Single source of truth for application navigation.
  * Adding a module means adding it here plus its route folder — nothing else.
+ *
+ * Inventory, VAT, Taxes and Cash Flow are deliberately absent from the MVP.
+ * They return when there is real data behind them.
  */
 export const NAV_SECTIONS: readonly NavSection[] = [
   {
@@ -48,8 +47,8 @@ export const NAV_SECTIONS: readonly NavSection[] = [
     ],
   },
   {
-    id: 'commerce',
-    label: 'Commerce',
+    id: 'business',
+    label: 'Business',
     items: [
       {
         id: 'sales',
@@ -59,6 +58,13 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         description: 'Orders, revenue, discounts and refunds by day, channel and SKU.',
       },
       {
+        id: 'marketing',
+        label: 'Marketing',
+        href: '/marketing',
+        icon: Megaphone,
+        description: 'Meta and Google ad spend measured against revenue and profit.',
+      },
+      {
         id: 'products',
         label: 'Products',
         href: '/products',
@@ -66,58 +72,11 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         description: 'Product catalogue, unit costs and per-SKU profitability.',
       },
       {
-        id: 'inventory',
-        label: 'Inventory',
-        href: '/inventory',
-        icon: Boxes,
-        description: 'Stock on hand, inventory valuation and cost of goods movement.',
-      },
-    ],
-  },
-  {
-    id: 'spend',
-    label: 'Spend',
-    items: [
-      {
-        id: 'marketing',
-        label: 'Marketing',
-        href: '/marketing',
-        icon: Megaphone,
-        description: 'Meta, Google and total marketing spend against contribution profit.',
-      },
-      {
         id: 'expenses',
         label: 'Expenses',
         href: '/expenses',
         icon: Receipt,
         description: 'Fixed and variable operating expenses, with source documents.',
-      },
-    ],
-  },
-  {
-    id: 'compliance',
-    label: 'Compliance',
-    items: [
-      {
-        id: 'vat',
-        label: 'VAT',
-        href: '/vat',
-        icon: Percent,
-        description: 'Output VAT, deductible input VAT and estimated VAT payable.',
-      },
-      {
-        id: 'taxes',
-        label: 'Taxes',
-        href: '/taxes',
-        icon: Landmark,
-        description: 'Estimated corporate tax and net profit after tax.',
-      },
-      {
-        id: 'cash-flow',
-        label: 'Cash Flow',
-        href: '/cash-flow',
-        icon: Wallet,
-        description: 'Cash in, cash out and runway across all accounts.',
       },
     ],
   },
@@ -130,7 +89,7 @@ export const NAV_SECTIONS: readonly NavSection[] = [
         label: 'Settings',
         href: '/settings',
         icon: Settings,
-        description: 'Business profile, fiscal configuration, users and data sources.',
+        description: 'Business profile, cost assumptions, data sources and users.',
       },
     ],
   },
