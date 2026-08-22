@@ -67,16 +67,16 @@ Two ways, sharing one code path (`connection.ts`):
 
 Neither returns a credential, a token, financial data or customer data.
 
-The Settings button is rate limited to 5 tests a minute per server instance.
-That is a courtesy limit on API budget, not access control: until sign-in
-exists, anyone who can reach the deployment can press it.
+The Settings button is rate limited to 5 tests a minute per server instance, as
+a courtesy to the API budget. Access control is the owner sign-in: the action
+re-checks the session itself rather than trusting the proxy.
 
-## Not wired up yet
+## What it feeds
 
-`src/data/dashboard-source.ts` still returns empties, so the dashboard shows
-"Not connected" regardless of whether credentials are set. Connecting it is a
-separate, deliberate step — the point at which the definition of each figure
-gets decided.
+`src/data/shopify-orders.ts` maps orders into `SalesOrder`, and
+`src/data/dashboard-source.ts` and `src/data/sales-source.ts` aggregate them for
+the dashboard, Sales and Products screens. Nothing is stored yet — each page
+load reads Shopify live.
 
 ## Known constraints
 
