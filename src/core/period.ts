@@ -105,6 +105,50 @@ export function instantToDateInTimeZone(instant: string, timeZone: string): stri
   }).format(parsed);
 }
 
+/**
+ * A timezone's offset from UTC, in minutes, at a given instant.
+ *
+ * Derived by formatting the instant in that zone and reading the wall clock
+ * back — which is what makes it correct across daylight saving changes, where a
+ * fixed offset would be wrong for half the year.
+ */
+function offsetMinutes(instant: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(instant);
+
+  const read = (type: string): number => Number(parts.find((part) => part.type === type)?.value ?? '0');
+
+  const wallClock = Date.UTC(
+    read('year'),
+    read('month') - 1,
+    read('day'),
+    read('hour'),
+    read('minute'),
+    read('second'),
+  );
+
+  return (wallClock - instant.getTime()) / 60_000;
+}
+
+/**
+ * How many hours ahead of `behind` the zone `ahead` is, at a given instant.
+ *
+ * Used to state, rather than hide, the gap between two systems that each bucket
+ * a day in their own timezone. A positive result means a calendar day starts
+ * that many hours earlier in `ahead` than it does in `behind`.
+ */
+export function hoursAheadOf(ahead: string, behind: string, instant: Date): number {
+  return (offsetMinutes(instant, ahead) - offsetMinutes(instant, behind)) / 60;
+}
+
 export type ClampedRange = {
   readonly range: DateRange;
   /** True when the requested range started before the available history. */

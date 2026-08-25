@@ -1,11 +1,11 @@
 import {
-  addMoney,
   divideMoney,
   moneyRatio,
   subtractMoney,
   sumMoney,
   type Money,
 } from '@/core/money';
+import type { AdPlatformId } from '@/core/metrics/marketing';
 import type {
   DashboardMetrics,
   InputId,
@@ -41,6 +41,29 @@ const INPUT_LABELS: Readonly<Record<InputId, string>> = {
 
 function missingInputs(inputs: PeriodInputs, ids: readonly InputId[]): readonly InputId[] {
   return ids.filter((id) => inputs[id] === null);
+}
+
+/** The spend input each ad platform supplies. */
+const AD_SPEND_INPUT: Readonly<Record<AdPlatformId, InputId>> = {
+  meta: 'metaSpend',
+  google: 'googleSpend',
+};
+
+/**
+ * The spend inputs total marketing spend is made of.
+ *
+ * Only platforms the business actually advertises on. A platform it does not
+ * use contributes nothing and is not waited on — otherwise the total could
+ * never be reported until every platform ICEBOX might one day use was wired up.
+ */
+function adSpendInputs(inputs: PeriodInputs): readonly InputId[] {
+  return inputs.activeAdPlatforms.map((platform) => AD_SPEND_INPUT[platform]);
+}
+
+/** "Meta spend + Google Ads spend", naming only the platforms in use. */
+function adSpendFormula(inputs: PeriodInputs): string {
+  const labels = adSpendInputs(inputs).map((id) => INPUT_LABELS[id]);
+  return labels.length === 0 ? 'No ad platforms configured' : labels.join(' + ');
 }
 
 function describeMissing(ids: readonly InputId[]): string {
@@ -168,8 +191,8 @@ export function computeDashboardMetrics(inputs: PeriodInputs): DashboardMetrics 
       {
         id: 'marketingSpend',
         label: 'Marketing spend',
-        formula: 'Meta spend + Google Ads spend',
-        dependsOn: ['metaSpend', 'googleSpend'],
+        formula: adSpendFormula(inputs),
+        dependsOn: adSpendInputs(inputs),
       },
       inputs,
       () => (marketingSpend === null ? null : moneyValue(marketingSpend)),
@@ -180,7 +203,7 @@ export function computeDashboardMetrics(inputs: PeriodInputs): DashboardMetrics 
         id: 'roas',
         label: 'ROAS',
         formula: 'Revenue ÷ marketing spend',
-        dependsOn: ['grossRevenue', 'discounts', 'refunds', 'metaSpend', 'googleSpend'],
+        dependsOn: ['grossRevenue', 'discounts', 'refunds', ...adSpendInputs(inputs)],
       },
       inputs,
       () => {
@@ -195,7 +218,7 @@ export function computeDashboardMetrics(inputs: PeriodInputs): DashboardMetrics 
         id: 'cpa',
         label: 'CPA',
         formula: 'Marketing spend ÷ orders',
-        dependsOn: ['metaSpend', 'googleSpend', 'orderCount'],
+        dependsOn: [...adSpendInputs(inputs), 'orderCount'],
       },
       inputs,
       () => {
@@ -227,8 +250,7 @@ export function computeDashboardMetrics(inputs: PeriodInputs): DashboardMetrics 
           'discounts',
           'refunds',
           'cogs',
-          'metaSpend',
-          'googleSpend',
+          ...adSpendInputs(inputs),
           'shippingCost',
           'processingFees',
           'operatingExpenses',
@@ -248,8 +270,7 @@ export function computeDashboardMetrics(inputs: PeriodInputs): DashboardMetrics 
           'discounts',
           'refunds',
           'cogs',
-          'metaSpend',
-          'googleSpend',
+          ...adSpendInputs(inputs),
           'shippingCost',
           'processingFees',
           'operatingExpenses',
@@ -293,8 +314,15 @@ function computeNetRevenue(inputs: PeriodInputs): Money | null {
   return subtractMoney(subtractMoney(grossRevenue, discounts), refunds);
 }
 
+/**
+ * Total ad spend across the platforms the business runs.
+ *
+ * With no platform configured there is nothing to total — reported as
+ * unavailable rather than as a zero that would look like "we spent nothing".
+ */
 function computeMarketingSpend(inputs: PeriodInputs): Money | null {
-  return sumInputs(inputs, ['metaSpend', 'googleSpend']);
+  const ids = adSpendInputs(inputs);
+  return ids.length === 0 ? null : sumInputs(inputs, ids);
 }
 
 function computeGrossProfit(inputs: PeriodInputs, netRevenue: Money | null): Money | null {
@@ -329,8 +357,5 @@ function computeNetProfit(
 
 /** Marketing spend on its own, for callers that only need the total. */
 export function totalMarketingSpend(inputs: PeriodInputs): Money | null {
-  const meta = inputs.metaSpend;
-  const google = inputs.googleSpend;
-  if (meta === null || google === null) return null;
-  return addMoney(meta, google);
+  return computeMarketingSpend(inputs);
 }

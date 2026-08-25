@@ -29,6 +29,15 @@ export type SalesPageData = {
   readonly caveats: DataCaveats;
   /** True when an order carried more line items than one page returned. */
   readonly lineItemsTruncated: boolean;
+  /**
+   * True only when Shopify actually answered.
+   *
+   * `totals` is zero-filled when it did not, and a caller must be able to tell
+   * that apart from a genuine period of no sales — "we could not ask" and "no
+   * orders were placed" are different statements, and a figure derived from the
+   * second when the first is true is simply wrong.
+   */
+  readonly sourceAnswered: boolean;
 };
 
 export type ProductsPageData = {
@@ -47,6 +56,9 @@ function emptyCaveats(range: DateRange, error: DataCaveats['error']): DataCaveat
     incomplete: false,
     taxesIncluded: false,
     error,
+    // Sales and Products show no advertising figures, so there is nothing to
+    // caveat about them here.
+    marketing: null,
   };
 }
 
@@ -66,6 +78,7 @@ export async function getSalesPageData(range: DateRange): Promise<SalesPageData>
           : { message: sales.message, guidance: sales.guidance },
       ),
       lineItemsTruncated: false,
+      sourceAnswered: false,
     };
   }
 
@@ -81,8 +94,10 @@ export async function getSalesPageData(range: DateRange): Promise<SalesPageData>
       incomplete: !sales.complete,
       taxesIncluded: sales.taxesIncluded,
       error: null,
+      marketing: null,
     },
     lineItemsTruncated: sales.lineItemsTruncated,
+    sourceAnswered: true,
   };
 }
 
@@ -114,6 +129,7 @@ export async function getProductsPageData(range: DateRange): Promise<ProductsPag
       incomplete: !sales.complete,
       taxesIncluded: sales.taxesIncluded,
       error: null,
+      marketing: null,
     },
     lineItemsTruncated: sales.lineItemsTruncated,
     orderCount: sales.orders.length,

@@ -66,6 +66,29 @@ export function divideMoney(amount: Money, divisor: number): Money | null {
 }
 
 /**
+ * Multiply an amount by a whole number.
+ *
+ * Used where a rate is quoted per a block of units rather than per one — CPM is
+ * a cost per *thousand* impressions, so the spend is scaled by 1000 before it is
+ * divided. Doing it in this order keeps the intermediate an exact integer;
+ * dividing first would round to whole agorot per impression and destroy the
+ * figure.
+ */
+export function scaleMoney(amount: Money, factor: number): Money {
+  if (!Number.isInteger(factor)) {
+    throw new Error(`Money can only be scaled by a whole number, received ${factor}.`);
+  }
+
+  const scaled = amount.minorUnits * factor;
+
+  if (!Number.isSafeInteger(scaled)) {
+    throw new Error(`Scaling ${amount.minorUnits} by ${factor} leaves the safe integer range.`);
+  }
+
+  return money(scaled, amount.currency);
+}
+
+/**
  * Ratio between two amounts of the same currency (e.g. ROAS, margin).
  * Returns `null` when the denominator is zero — a ratio against nothing is not
  * zero, it is undefined, and must be rendered as such.

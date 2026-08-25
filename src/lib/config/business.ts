@@ -1,4 +1,5 @@
 import type { CurrencyCode } from '@/core/money';
+import type { AdPlatformId } from '@/core/metrics/marketing';
 
 /**
  * Business configuration for ICEBOX.
@@ -55,6 +56,17 @@ export type BusinessConfig = {
   /** Business timezone — decides which calendar day an order belongs to. */
   readonly timeZone: string;
   readonly fiscalYearStartMonth: number;
+  /**
+   * Ad platforms this business actually advertises on.
+   *
+   * This is a business fact, not a connection status, and it is what total
+   * marketing spend is summed over. A platform listed here but not yet
+   * connected makes the total unavailable — its spend is unknown, not zero. A
+   * platform not listed contributes nothing, because the business does not
+   * spend there. Without this distinction a total could only ever be reported
+   * once every platform ICEBOX might one day use was connected.
+   */
+  readonly adPlatforms: readonly AdPlatformId[];
   readonly costs: CostConfig;
 };
 
@@ -65,6 +77,9 @@ export const BUSINESS_CONFIG: BusinessConfig = {
   locale: 'en-IL',
   timeZone: 'Asia/Jerusalem',
   fiscalYearStartMonth: 1,
+  // Meta is the only platform ICEBOX advertises on today. Add 'google' here at
+  // the same time as the Google Ads integration, not before.
+  adPlatforms: ['meta'],
   costs: {
     shipping: { costPerOrderMinorUnits: null, currency: 'ILS' },
     paymentProcessing: { rateBasisPoints: null, fixedFeeMinorUnits: null, currency: 'ILS' },

@@ -4,17 +4,20 @@ import { metaGet, requireGraphObject } from '@/integrations/meta/client';
 import { getMetaConfig } from '@/integrations/meta/config';
 import { MetaResponseError } from '@/integrations/meta/errors';
 import { isRecord, readField, requireArray, requireString } from '@/integrations/shopify/json';
-import { moneyFromDecimalString, parseCurrencyCode, type Money } from '@/core/money';
+import { moneyFromDecimalString, parseCurrencyCode, zeroMoney, type Money } from '@/core/money';
+import type { AdDelivery } from '@/core/metrics/marketing';
 import type { DateRange } from '@/core/period';
 
 /**
  * Reading spend and performance from Meta's Insights API.
  *
- * This module maps Meta's payloads into ICEBOX types and stops there. It
- * computes no blended figure: combining Meta spend with Shopify revenue is a
- * financial decision for `src/core`, made once and made explicitly.
- *
- * Nothing here is wired into a screen yet — the connection is verified first.
+ * This module maps Meta's payloads into ICEBOX types and stops there. It reads
+ * only what is measured — spend, impressions, reach, link clicks, attributed
+ * purchases and their value — and computes nothing. Frequency, CPM, CTR, CPC,
+ * CPA and ROAS are all derived in `src/core/metrics/marketing.ts` from these
+ * measures, so each carries its inputs and can be checked. Meta publishes its
+ * own pre-computed versions of those; they are deliberately not read, so there
+ * is one definition of each rather than two that can drift apart.
  */
 
 /**
@@ -42,40 +45,34 @@ const INSIGHT_FIELDS: readonly string[] = [
   'spend',
   'impressions',
   'reach',
-  'cpm',
   'inline_link_clicks',
-  'inline_link_click_ctr',
-  'cost_per_inline_link_click',
   'actions',
   'action_values',
 ];
 
 const CAMPAIGN_FIELDS: readonly string[] = ['campaign_id', 'campaign_name', ...INSIGHT_FIELDS];
 
-export type MetaInsightRow = {
-  /** Present only when reading at campaign level. */
-  readonly campaignId: string | null;
-  readonly campaignName: string | null;
-  readonly spend: Money;
-  readonly impressions: number;
-  readonly reach: number;
-  /** Cost per thousand impressions, as Meta reports it. */
-  readonly cpm: Money | null;
-  readonly linkClicks: number;
-  /** Link click-through rate as a fraction, e.g. 0.0123 for 1.23%. */
-  readonly linkCtr: number | null;
-  readonly costPerLinkClick: Money | null;
-  /** Purchases Meta attributes to these ads, in its own attribution window. */
-  readonly purchases: number | null;
-  /** Value of those purchases, as Meta reports it. */
-  readonly purchaseValue: Money | null;
+/** Campaigns Meta will return in one page. Accounts accumulate hundreds. */
+const CAMPAIGN_PAGE_LIMIT = 500;
+
+export type MetaCampaignInsight = {
+  readonly campaignId: string;
+  readonly campaignName: string;
+  readonly delivery: AdDelivery;
 };
 
 export type MetaInsights = {
-  readonly account: MetaInsightRow | null;
-  readonly campaigns: readonly MetaInsightRow[];
+  /** Account-level totals. `null` when Meta reports no row for the period. */
+  readonly account: AdDelivery | null;
+  readonly campaigns: readonly MetaCampaignInsight[];
   /** The ad account's currency — spend is meaningless without it. */
   readonly currency: string;
+  /**
+   * True when Meta returned a full page of campaigns, so there may be more.
+   * Surfaced rather than silently ignored: a truncated list would understate
+   * the account.
+   */
+  readonly campaignsTruncated: boolean;
 };
 
 /**
@@ -85,6 +82,10 @@ export type MetaInsights = {
  * may differ from the business timezone Shopify figures are bucketed by. That
  * difference is real and belongs in the caveats a screen shows, not in a
  * silent adjustment here.
+ *
+ * Account totals come from Meta's own account-level row, never from summing the
+ * campaign rows: reach is deduplicated across campaigns, so summing it would
+ * overcount people, and a truncated campaign page would understate spend.
  */
 export async function fetchMetaInsights(range: DateRange): Promise<MetaInsights> {
   const config = getMetaConfig();
@@ -102,7 +103,7 @@ export async function fetchMetaInsights(range: DateRange): Promise<MetaInsights>
         fields: CAMPAIGN_FIELDS.join(','),
         time_range: timeRange,
         level: 'campaign',
-        limit: '200',
+        limit: String(CAMPAIGN_PAGE_LIMIT),
       },
       config,
     }),
@@ -112,10 +113,13 @@ export async function fetchMetaInsights(range: DateRange): Promise<MetaInsights>
   const campaignRows = parseRows(campaignPayload, 'campaign insights');
   const currency = readCurrency(accountRows, campaignRows);
 
+  const firstAccountRow = accountRows[0];
+
   return {
-    account: accountRows.length === 0 ? null : toRow(accountRows[0] ?? {}, currency),
-    campaigns: campaignRows.map((row) => toRow(row, currency)),
+    account: firstAccountRow === undefined ? null : toDelivery(firstAccountRow, currency),
+    campaigns: campaignRows.flatMap((row) => toCampaign(row, currency)),
     currency,
+    campaignsTruncated: campaignRows.length >= CAMPAIGN_PAGE_LIMIT,
   };
 }
 
@@ -152,17 +156,29 @@ function readCurrency(
   return '';
 }
 
-function toRow(row: Record<string, unknown>, currency: string): MetaInsightRow {
+/** A campaign row, or nothing when Meta omits the identity fields. */
+function toCampaign(row: Record<string, unknown>, currency: string): readonly MetaCampaignInsight[] {
+  const campaignId = readOptionalString(row, 'campaign_id');
+  if (campaignId === null) return [];
+
+  return [
+    {
+      campaignId,
+      // Campaign names are the advertiser's own text — Hebrew, emoji and
+      // bidirectional marks included. Carried through exactly as Meta reports
+      // it; presentation is the screen's problem.
+      campaignName: readOptionalString(row, 'campaign_name') ?? campaignId,
+      delivery: toDelivery(row, currency),
+    },
+  ];
+}
+
+function toDelivery(row: Record<string, unknown>, currency: string): AdDelivery {
   return {
-    campaignId: readOptionalString(row, 'campaign_id'),
-    campaignName: readOptionalString(row, 'campaign_name'),
     spend: readMoney(row, 'spend', currency) ?? zeroFor(currency),
     impressions: readCount(row, 'impressions'),
     reach: readCount(row, 'reach'),
-    cpm: readMoney(row, 'cpm', currency),
     linkClicks: readCount(row, 'inline_link_clicks'),
-    linkCtr: readPercentAsFraction(row, 'inline_link_click_ctr'),
-    costPerLinkClick: readMoney(row, 'cost_per_inline_link_click', currency),
     purchases: readActionCount(row, 'actions'),
     purchaseValue: readActionMoney(row, 'action_values', currency),
   };
@@ -181,21 +197,6 @@ function readCount(row: Record<string, unknown>, key: string): number {
 
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.round(parsed) : 0;
-}
-
-/**
- * Meta returns rates as percentages ("1.23" meaning 1.23%). They are converted
- * to fractions here so the whole system speaks one language, and formatting
- * stays a presentation concern.
- */
-function readPercentAsFraction(row: Record<string, unknown>, key: string): number | null {
-  const value = readField(row, key);
-  const text = typeof value === 'number' ? String(value) : value;
-
-  if (typeof text !== 'string' || text.length === 0) return null;
-
-  const parsed = Number(text);
-  return Number.isFinite(parsed) ? parsed / 100 : null;
 }
 
 function readMoney(row: Record<string, unknown>, key: string, currency: string): Money | null {
@@ -246,6 +247,14 @@ function findPurchaseAction(row: Record<string, unknown>, key: string): string |
  * something to coerce.
  */
 function toMoney(amount: string, currency: string): Money {
+  return moneyFromDecimalString(amount, requireCurrency(currency));
+}
+
+function zeroFor(currency: string): Money {
+  return zeroMoney(requireCurrency(currency));
+}
+
+function requireCurrency(currency: string) {
   const code = parseCurrencyCode(currency);
 
   if (code === null) {
@@ -254,11 +263,7 @@ function toMoney(amount: string, currency: string): Money {
     );
   }
 
-  return moneyFromDecimalString(amount, code);
-}
-
-function zeroFor(currency: string): Money {
-  return toMoney('0', currency);
+  return code;
 }
 
 /** Field list, exported so the connection test can explain what will be read. */
@@ -275,5 +280,8 @@ export async function fetchAccountCurrency(): Promise<string> {
     config,
   });
 
-  return requireString(readField(requireGraphObject(payload, 'account'), 'currency'), 'account.currency');
+  return requireString(
+    readField(requireGraphObject(payload, 'account'), 'currency'),
+    'account.currency',
+  );
 }

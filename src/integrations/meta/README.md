@@ -57,13 +57,23 @@ status. It fetches no spend and returns no credential.
 Rate limited to 5 tests a minute per server instance, as a courtesy to the API
 budget.
 
-## Not wired up yet
+## What it feeds
 
-Nothing here feeds a screen. `insights.ts` exists and is tested, but Marketing
-Spend, CPA and ROAS on the dashboard still report "Not connected", and the
-Marketing page is still a placeholder. Connecting them is a separate,
-deliberate step — taken once the connection itself is verified against the live
-account.
+`src/data/marketing-source.ts` maps insights into `AdDelivery` and hands them to
+`src/core/metrics/marketing.ts`, which derives every rate. That drives Marketing
+spend, ROAS and CPA on the dashboard and the whole Marketing screen. Nothing is
+stored yet — each page load reads Meta live.
+
+**This layer derives nothing.** Frequency, CPM, link CTR, link CPC, CPA and ROAS
+are all computed in `src/core` from spend, impressions, reach, link clicks,
+purchases and purchase value. Meta publishes its own pre-computed versions of
+each; they are deliberately not read, so there is one definition rather than two
+that can drift. The computed values were checked against Ads Manager and
+reproduce it exactly — frequency is impressions ÷ reach, ROAS is purchase value
+÷ spend, to six decimal places.
+
+Account totals come from Meta's own account-level row, never from summing
+campaigns: reach is deduplicated, so summing it would overcount people.
 
 ## Known constraints
 

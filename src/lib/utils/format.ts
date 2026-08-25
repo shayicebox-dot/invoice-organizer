@@ -34,12 +34,24 @@ export function formatMultiple(multiple: number): string {
   return `${multiple.toFixed(2)}×`;
 }
 
-export function formatPercent(fraction: number): string {
+/**
+ * A fraction as a percentage.
+ *
+ * `digits` defaults to one decimal, which suits margins. Rates that live near
+ * zero — a link CTR is routinely under 2% — need two, or every distinct value
+ * rounds to the same figure.
+ */
+export function formatPercent(fraction: number, digits = 1): string {
   return new Intl.NumberFormat(BUSINESS_CONFIG.locale, {
     style: 'percent',
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
   }).format(fraction);
+}
+
+/** Average times one person saw an ad, e.g. "3.62×". */
+export function formatFrequency(frequency: number): string {
+  return `${frequency.toFixed(2)}×`;
 }
 
 export function formatMetricValue(value: MetricValue): string {

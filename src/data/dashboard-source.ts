@@ -6,15 +6,16 @@ import type { DailySeries } from '@/core/metrics/daily';
 import type { PeriodInputs } from '@/core/metrics/types';
 import { aggregatePeriod, buildDailySeries, type SalesOrder } from '@/core/metrics/sales';
 import { getSalesForPeriod } from '@/data/shopify-orders';
-import { isShopifyConfigured } from '@/lib/config/env';
+import { getMetaSpend, type MarketingCaveats } from '@/data/marketing-source';
+import { isShopifyConfigured, isMetaConfigured } from '@/lib/config/env';
 
 /**
  * The seam between ICEBOX OS and its data.
  *
- * Shopify now supplies orders, revenue, discounts and refunds. Everything else
- * — ad spend, product costs, expenses — has no source yet and stays `null`,
- * which travels all the way to the screen as "Not connected". Nothing here
- * substitutes a zero for a number it does not have.
+ * Shopify supplies orders, revenue, discounts and refunds; Meta supplies ad
+ * spend. Everything else — product costs, expenses — has no source yet and
+ * stays `null`, which travels all the way to the screen as "Not connected".
+ * Nothing here substitutes a zero for a number it does not have.
  */
 
 export type DataSourceId =
@@ -52,6 +53,8 @@ export type DataCaveats = {
   /** True when store prices include tax, so figures carry VAT. */
   readonly taxesIncluded: boolean;
   readonly error: { readonly message: string; readonly guidance: string } | null;
+  /** Everything the advertising figures need said about them. `null` until read. */
+  readonly marketing: MarketingCaveats | null;
 };
 
 export type DashboardData = {
@@ -65,7 +68,7 @@ export type DashboardData = {
 
 const RECENT_ORDERS_SHOWN = 8;
 
-function buildSources(shopifyConnected: boolean): readonly DataSource[] {
+function buildSources(shopifyConnected: boolean, metaConnected: boolean): readonly DataSource[] {
   return [
     {
       id: 'shopify',
@@ -73,7 +76,7 @@ function buildSources(shopifyConnected: boolean): readonly DataSource[] {
       connected: shopifyConnected,
       provides: 'Orders, revenue, discounts, refunds',
     },
-    { id: 'meta-ads', label: 'Meta Ads', connected: false, provides: 'Daily ad spend' },
+    { id: 'meta-ads', label: 'Meta Ads', connected: metaConnected, provides: 'Ad spend and performance' },
     { id: 'google-ads', label: 'Google Ads', connected: false, provides: 'Daily ad spend' },
     {
       id: 'product-costs',
@@ -93,6 +96,7 @@ export function connectedSourceCount(sources: readonly DataSource[]): number {
 function emptyInputs(): PeriodInputs {
   return {
     currency: BUSINESS_CONFIG.reportingCurrency,
+    activeAdPlatforms: BUSINESS_CONFIG.adPlatforms,
     grossRevenue: null,
     discounts: null,
     refunds: null,
@@ -106,17 +110,27 @@ function emptyInputs(): PeriodInputs {
   };
 }
 
-/** Everything the dashboard needs for one period. */
+/**
+ * Everything the dashboard needs for one period.
+ *
+ * Shopify is read first and Meta second, deliberately in sequence rather than
+ * in parallel: Shopify may trim the requested range to the history it actually
+ * has, and ad spend must then be read over that same trimmed range. Fetching
+ * both at once would be faster and would divide a full period's spend by a
+ * shorter period's revenue — a plausible-looking ROAS that is simply wrong.
+ */
 export async function getDashboardData(range: DateRange): Promise<DashboardData> {
   const sales = await getSalesForPeriod(range, false);
 
   if (!sales.ok) {
+    const marketing = await getMetaSpend(range);
+
     return {
       range,
-      inputs: emptyInputs(),
+      inputs: { ...emptyInputs(), metaSpend: marketing.spend },
       daily: [],
       recentOrders: [],
-      sources: buildSources(false),
+      sources: buildSources(false, isMetaConfigured()),
       caveats: {
         coverage: sales.coverage,
         availableFrom: null,
@@ -126,11 +140,13 @@ export async function getDashboardData(range: DateRange): Promise<DashboardData>
           sales.reason === 'not-configured'
             ? null
             : { message: sales.message, guidance: sales.guidance },
+        marketing: marketing.configured ? marketing.caveats : null,
       },
     };
   }
 
   const totals = aggregatePeriod(sales.orders, sales.currency);
+  const marketing = await getMetaSpend(sales.coverage.range);
 
   return {
     range: sales.coverage.range,
@@ -140,16 +156,18 @@ export async function getDashboardData(range: DateRange): Promise<DashboardData>
       discounts: totals.discounts,
       refunds: totals.refunds,
       orderCount: totals.orderCount,
+      metaSpend: marketing.spend,
     },
     daily: buildDailySeries(sales.orders, sales.coverage.range, sales.currency),
     recentOrders: toRecentOrders(sales.orders),
-    sources: buildSources(isShopifyConfigured()),
+    sources: buildSources(isShopifyConfigured(), isMetaConfigured()),
     caveats: {
       coverage: sales.coverage,
       availableFrom: sales.availableFrom,
       incomplete: !sales.complete,
       taxesIncluded: sales.taxesIncluded,
       error: null,
+      marketing: marketing.configured ? marketing.caveats : null,
     },
   };
 }
