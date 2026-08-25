@@ -85,3 +85,69 @@ export function formatDateRange(range: { readonly start: string; readonly end: s
   if (range.start === range.end) return formatShortDate(range.start);
   return `${formatShortDate(range.start)} – ${formatShortDate(range.end)}`;
 }
+
+/**
+ * A range with its year, for the date picker and anywhere the exact period
+ * must be unambiguous: "18 Aug – 24 Aug 2026".
+ *
+ * The year is written once when both ends share it, and on both ends when they
+ * do not — a range spanning New Year has to say so.
+ */
+export function formatRangeLabel(range: { readonly start: string; readonly end: string }): string {
+  const startYear = range.start.slice(0, 4);
+  const endYear = range.end.slice(0, 4);
+
+  if (range.start === range.end) return formatLongDate(range.start);
+  if (startYear === endYear) {
+    return `${formatShortDate(range.start)} – ${formatLongDate(range.end)}`;
+  }
+  return `${formatLongDate(range.start)} – ${formatLongDate(range.end)}`;
+}
+
+/** `YYYY-MM-DD` → "24 Aug 2026". */
+export function formatLongDate(isoDate: string): string {
+  return new Intl.DateTimeFormat(BUSINESS_CONFIG.locale, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${isoDate}T00:00:00Z`));
+}
+
+/** `YYYY-MM-DD` → "August 2026", for a calendar heading. */
+export function formatMonthLabel(isoDate: string): string {
+  return new Intl.DateTimeFormat(BUSINESS_CONFIG.locale, {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${isoDate}T00:00:00Z`));
+}
+
+/** `YYYY-MM-DD` → "Monday 24 August 2026", for a calendar cell's screen-reader name. */
+export function formatFullDate(isoDate: string): string {
+  return new Intl.DateTimeFormat(BUSINESS_CONFIG.locale, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(`${isoDate}T00:00:00Z`));
+}
+
+/**
+ * Short weekday initials starting on the business week's first day.
+ *
+ * Built from a known week in UTC rather than hardcoded, so the labels follow
+ * the configured locale instead of being English constants in a component.
+ */
+export function weekdayInitials(weekStartsOn: number): readonly string[] {
+  const formatter = new Intl.DateTimeFormat(BUSINESS_CONFIG.locale, {
+    weekday: 'short',
+    timeZone: 'UTC',
+  });
+
+  // 2024-01-07 was a Sunday, so index 0 of this week is Sunday.
+  return Array.from({ length: 7 }, (_, index) =>
+    formatter.format(new Date(Date.UTC(2024, 0, 7 + ((weekStartsOn + index) % 7)))),
+  );
+}

@@ -2,11 +2,11 @@ import type { Metadata } from 'next';
 import { PageHeader } from '@/components/ui/page-header';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { PeriodSelector } from '@/components/dashboard/period-selector';
+import { DateRangePicker } from '@/components/dashboard/date-range-picker';
+import { PeriodNotice } from '@/components/dashboard/period-notice';
 import { DataNotices } from '@/components/sales/data-notices';
 import { getProductsPageData } from '@/data/sales-source';
-import { parsePeriodPreset, resolvePeriod } from '@/core/period';
-import { todayInBusinessTimeZone } from '@/lib/utils/today';
+import { reportingPeriod } from '@/lib/utils/reporting-period';
 import { formatCount, formatDateRange, formatMoney } from '@/lib/utils/format';
 
 export const metadata: Metadata = { title: 'Products' };
@@ -21,10 +21,7 @@ type ProductsPageProps = {
 const COLUMNS = ['Product', 'SKU', 'Quantity sold', 'Revenue'] as const;
 
 export default async function ProductsPage({ searchParams }: ProductsPageProps) {
-  const params = await searchParams;
-  const periodParam = params['period'];
-  const preset = parsePeriodPreset(typeof periodParam === 'string' ? periodParam : undefined);
-  const range = resolvePeriod(preset, todayInBusinessTimeZone());
+  const { range, preset, today, adjustment } = reportingPeriod(await searchParams);
 
   const data = await getProductsPageData(range);
 
@@ -35,7 +32,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         description={`What sold between ${formatDateRange(data.caveats.coverage.range)}.`}
         actions={
           <>
-            <PeriodSelector active={preset} basePath="/products" />
+            <DateRangePicker range={range} preset={preset} today={today} basePath="/products" />
             <Badge tone={data.products.length > 0 ? 'positive' : 'neutral'}>
               {formatCount(data.products.length)} products
             </Badge>
@@ -43,6 +40,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
         }
       />
 
+      <PeriodNotice adjustment={adjustment} />
       <DataNotices caveats={data.caveats} />
 
       {data.lineItemsTruncated ? (

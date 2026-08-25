@@ -21,7 +21,8 @@ MVP dashboard over an empty data source. What exists:
 - Dashboard layout: sidebar, top bar, responsive desktop and mobile chrome
 - Dashboard: 10 KPI tiles, revenue overview, marketing performance, profit
   breakdown, daily performance chart, recent orders table, data-source panel
-- Period switcher (today / 7d / 30d / MTD / YTD) via `?period=`
+- Date range picker: quick presets plus a manual start/end calendar, carried in
+  the URL as `?from=&to=` and applied identically on every screen
 - Money primitives and pure metric calculations in `src/core`
 - Business and cost configuration in `src/lib/config/business.ts`
 - Shopify is the live source for orders, revenue, discounts and refunds
@@ -124,7 +125,7 @@ src/
 │   └── ui/                     Card, Badge, PageHeader, EmptyState
 ├── core/                       business logic — pure, no I/O
 │   ├── money.ts                integer minor units, decimal parsing, no floats
-│   ├── period.ts               reporting ranges, timezone bucketing, clamping
+│   ├── period.ts               reporting ranges, presets, calendar arithmetic
 │   └── metrics/                dashboard, sales + advertising calculations
 ├── data/
 │   ├── shopify-orders.ts       Shopify payloads → SalesOrder (the mapping)
@@ -146,7 +147,8 @@ src/
 │   ├── supabase/admin.ts       service-role client — server only
 │   ├── utils/cn.ts             Tailwind class merge
 │   ├── utils/format.ts         currency, date and percentage formatting
-│   └── utils/today.ts          today in the business timezone
+│   ├── utils/today.ts          today in the business timezone
+│   └── utils/reporting-period.ts  the one place a screen resolves its dates
 └── types/                      shared types, generated DB types
 ```
 
@@ -189,6 +191,16 @@ mix currencies in a sum.
 **No sample, mock or estimated data in the UI.**
 An empty state is correct; a plausible-looking fake number is a defect. Real
 figures appear only once they come from a real source through a real calculation.
+
+**One date system, resolved in one place.**
+Every screen gets its range from `reportingPeriod()`, which reads `?from=&to=`
+from the URL, and hands that one `DateRange` to every source it reads. A quick
+preset is not a second mode — it is a shortcut that produces the same two dates
+a person could type, so presets and custom ranges cannot drift apart. Sharing
+or refreshing a link therefore reproduces the same figures. `last7` and
+`last30` cover complete days and exclude today, matching Meta Ads Manager; a
+part-day at the end would drag every rate down. A range that cannot be honoured
+is reported, never silently swapped — see `PeriodAdjustment`.
 
 **Sales definitions are fixed in one place.**
 Gross sales are product prices before discounts, reconstructed as Shopify's

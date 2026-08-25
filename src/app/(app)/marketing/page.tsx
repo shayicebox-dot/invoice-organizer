@@ -4,14 +4,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Megaphone } from 'lucide-react';
-import { PeriodSelector } from '@/components/dashboard/period-selector';
+import { DateRangePicker } from '@/components/dashboard/date-range-picker';
+import { PeriodNotice } from '@/components/dashboard/period-notice';
 import { MarketingNotices } from '@/components/marketing/marketing-notices';
 import { CampaignTable } from '@/components/marketing/campaign-table';
 import { computeBlendedAdMetrics } from '@/core/metrics/marketing';
-import { parsePeriodPreset, resolvePeriod } from '@/core/period';
 import { getMarketingData } from '@/data/marketing-source';
 import { getSalesPageData } from '@/data/sales-source';
-import { todayInBusinessTimeZone } from '@/lib/utils/today';
+import { reportingPeriod } from '@/lib/utils/reporting-period';
 import {
   formatCount,
   formatDateRange,
@@ -31,10 +31,7 @@ type MarketingPageProps = {
 };
 
 export default async function MarketingPage({ searchParams }: MarketingPageProps) {
-  const params = await searchParams;
-  const periodParam = params['period'];
-  const preset = parsePeriodPreset(typeof periodParam === 'string' ? periodParam : undefined);
-  const range = resolvePeriod(preset, todayInBusinessTimeZone());
+  const { range, preset, today, adjustment } = reportingPeriod(await searchParams);
 
   const [marketing, sales] = await Promise.all([getMarketingData(range), getSalesPageData(range)]);
   const { delivery, efficiency, caveats } = marketing;
@@ -64,14 +61,17 @@ export default async function MarketingPage({ searchParams }: MarketingPageProps
         }
         actions={
           <>
-            <PeriodSelector active={preset} basePath="/marketing" />
+            <DateRangePicker range={range} preset={preset} today={today} basePath="/marketing" />
             <Badge tone={delivery === null ? 'neutral' : 'positive'}>
-              {delivery === null ? 'Not connected' : `${formatCount(marketing.campaigns.length)} campaigns`}
+              {delivery === null
+                ? 'Not connected'
+                : `${formatCount(marketing.campaigns.length)} ${marketing.campaigns.length === 1 ? 'campaign' : 'campaigns'}`}
             </Badge>
           </>
         }
       />
 
+      <PeriodNotice adjustment={adjustment} />
       <MarketingNotices caveats={caveats} singleDay={range.start === range.end} />
 
       {!marketing.configured ? (

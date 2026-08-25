@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { PageHeader } from '@/components/ui/page-header';
 import { Badge } from '@/components/ui/badge';
 import { KpiCard } from '@/components/dashboard/kpi-card';
-import { PeriodSelector } from '@/components/dashboard/period-selector';
+import { DateRangePicker } from '@/components/dashboard/date-range-picker';
+import { PeriodNotice } from '@/components/dashboard/period-notice';
 import { RevenueOverview } from '@/components/dashboard/revenue-overview';
 import { MarketingPerformance } from '@/components/dashboard/marketing-performance';
 import { ProfitBreakdown } from '@/components/dashboard/profit-breakdown';
@@ -12,11 +13,10 @@ import { DailyPerformanceChart } from '@/components/dashboard/daily-performance-
 import { DataSourcePanel } from '@/components/dashboard/data-source-panel';
 import { computeDashboardMetrics } from '@/core/metrics/dashboard';
 import type { MetricId } from '@/core/metrics/types';
-import { parsePeriodPreset, resolvePeriod } from '@/core/period';
 import { connectedSourceCount, getDashboardData } from '@/data/dashboard-source';
 import { DataNotices } from '@/components/sales/data-notices';
 import { MarketingNotices } from '@/components/marketing/marketing-notices';
-import { todayInBusinessTimeZone } from '@/lib/utils/today';
+import { reportingPeriod } from '@/lib/utils/reporting-period';
 import { formatDateRange } from '@/lib/utils/format';
 
 export const metadata: Metadata = { title: 'Dashboard' };
@@ -45,10 +45,7 @@ type DashboardPageProps = {
 };
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const params = await searchParams;
-  const periodParam = params['period'];
-  const preset = parsePeriodPreset(typeof periodParam === 'string' ? periodParam : undefined);
-  const range = resolvePeriod(preset, todayInBusinessTimeZone());
+  const { range, preset, today, adjustment } = reportingPeriod(await searchParams);
 
   const data = await getDashboardData(range);
   const metrics = computeDashboardMetrics(data.inputs);
@@ -63,7 +60,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         description={`Financial overview for ${formatDateRange(data.range)}.`}
         actions={
           <>
-            <PeriodSelector active={preset} basePath="/dashboard" />
+            <DateRangePicker range={range} preset={preset} today={today} basePath="/dashboard" />
             <Badge tone={connected > 0 ? 'positive' : 'neutral'}>
               {connected === 0
                 ? 'No data sources'
@@ -73,6 +70,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         }
       />
 
+      <PeriodNotice adjustment={adjustment} />
       <DataNotices caveats={data.caveats} />
       <MarketingNotices caveats={data.caveats.marketing} singleDay={range.start === range.end} />
 
