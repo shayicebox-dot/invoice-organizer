@@ -1,12 +1,13 @@
 import 'server-only';
 
-import { BUSINESS_CONFIG } from '@/lib/config/business';
+import { BUSINESS_CONFIG, hasCostConfiguration } from '@/lib/config/business';
 import type { ClampedRange, DateRange } from '@/core/period';
 import type { DailySeries } from '@/core/metrics/daily';
 import type { PeriodInputs } from '@/core/metrics/types';
-import { aggregatePeriod, buildDailySeries, type SalesOrder } from '@/core/metrics/sales';
+import { aggregatePeriod, buildDailySeries, emptyTotals, type SalesOrder } from '@/core/metrics/sales';
 import { getSalesForPeriod } from '@/data/shopify-orders';
 import { getMetaSpend, type MarketingCaveats } from '@/data/marketing-source';
+import { buildProfitability, type ProfitabilityResult } from '@/data/profitability-source';
 import { isShopifyConfigured, isMetaConfigured } from '@/lib/config/env';
 
 /**
@@ -60,6 +61,8 @@ export type DataCaveats = {
 export type DashboardData = {
   readonly range: DateRange;
   readonly inputs: PeriodInputs;
+  /** The full profit and loss for the period, and how solid its inputs are. */
+  readonly profitability: ProfitabilityResult;
   readonly daily: DailySeries;
   readonly recentOrders: readonly RecentOrder[];
   readonly sources: readonly DataSource[];
@@ -81,8 +84,8 @@ function buildSources(shopifyConnected: boolean, metaConnected: boolean): readon
     {
       id: 'product-costs',
       label: 'Product costs',
-      connected: false,
-      provides: 'Unit costs for COGS',
+      connected: hasCostConfiguration(),
+      provides: 'Landed cost and shipping per physical box',
     },
     { id: 'expenses', label: 'Expenses', connected: false, provides: 'Operating expenses' },
   ];
@@ -120,7 +123,9 @@ function emptyInputs(): PeriodInputs {
  * shorter period's revenue — a plausible-looking ROAS that is simply wrong.
  */
 export async function getDashboardData(range: DateRange): Promise<DashboardData> {
-  const sales = await getSalesForPeriod(range, false);
+  // Line items are read here — unlike before — because the profit engine costs
+  // physical boxes, and a box count can only be built line by line.
+  const sales = await getSalesForPeriod(range, true);
 
   if (!sales.ok) {
     const marketing = await getMetaSpend(range);
@@ -128,6 +133,13 @@ export async function getDashboardData(range: DateRange): Promise<DashboardData>
     return {
       range,
       inputs: { ...emptyInputs(), metaSpend: marketing.spend },
+      profitability: buildProfitability({
+        range,
+        orders: [],
+        totals: emptyTotals(BUSINESS_CONFIG.reportingCurrency),
+        sourceAnswered: false,
+        adSpend: marketing.spend,
+      }),
       daily: [],
       recentOrders: [],
       sources: buildSources(false, isMetaConfigured()),
@@ -150,6 +162,13 @@ export async function getDashboardData(range: DateRange): Promise<DashboardData>
 
   return {
     range: sales.coverage.range,
+    profitability: buildProfitability({
+      range: sales.coverage.range,
+      orders: sales.orders,
+      totals,
+      sourceAnswered: true,
+      adSpend: marketing.spend,
+    }),
     inputs: {
       ...emptyInputs(),
       grossRevenue: totals.grossSales,

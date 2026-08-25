@@ -39,7 +39,7 @@ export function DataNotices({ caveats }: { readonly caveats: DataCaveats }) {
 
   if (taxesIncluded) {
     notices.push(
-      'Your Shopify prices include tax, so these figures include VAT. Separating VAT out is a later step.',
+      'Your Shopify prices include tax, so the figures on this page include VAT. The dashboard and Expenses restate them excluding VAT.',
     );
   }
 

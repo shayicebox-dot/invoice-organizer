@@ -42,7 +42,9 @@ export function MarketingPerformance({
         <div>
           <CardTitle>Marketing performance</CardTitle>
           <CardDescription>
-            Ad spend by platform, with return and cost per order measured against Shopify revenue.
+            Ad spend by platform. ROAS and CPA are stated once, in the cards above, against
+            revenue excluding VAT — two versions of the same ratio on one screen would only invite
+            the wrong one to be quoted.
           </CardDescription>
         </div>
       </CardHeader>
@@ -52,8 +54,6 @@ export function MarketingPerformance({
             <MetricRow key={platform} metric={metrics[PLATFORMS[platform].metric]} sign="−" />
           ))}
           <MetricRow metric={metrics.marketingSpend} subtotal label="Total marketing spend" />
-          <MetricRow metric={metrics.roas} />
-          <MetricRow metric={metrics.cpa} />
         </div>
 
         {adPlatforms.length === 0 ? null : (

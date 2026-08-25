@@ -34,6 +34,15 @@ export type SalesLineItem = {
   /** Line total after discounts, before refunds. */
   readonly discountedTotal: Money;
   readonly productId: string | null;
+  /**
+   * The variant sold, which is what a pack size actually is in Shopify.
+   *
+   * Carried because costing needs to know how many physical boxes one unit of
+   * this line represents, and a variant ID is the only stable way to say so —
+   * see `src/core/metrics/boxes.ts`.
+   */
+  readonly variantId: string | null;
+  readonly variantTitle: string | null;
 };
 
 export type SalesOrder = {
@@ -63,16 +72,6 @@ export type PeriodTotals = {
   readonly refunds: Money;
   readonly netRevenue: Money;
   readonly orderCount: number;
-};
-
-export type ProductSales = {
-  /** Stable grouping key: SKU when present, else product id, else the title. */
-  readonly key: string;
-  readonly productTitle: string;
-  readonly sku: string | null;
-  readonly quantitySold: number;
-  /** After discounts, before refunds — refunds are not reported per line item. */
-  readonly revenue: Money;
 };
 
 /** Net revenue for one order: gross − discounts − refunds. */
@@ -132,38 +131,6 @@ export function buildDailySeries(
 }
 
 /** Quantity sold and revenue per product, ordered by revenue descending. */
-export function aggregateProductSales(orders: readonly SalesOrder[]): readonly ProductSales[] {
-  const byProduct = new Map<string, ProductSales>();
-
-  for (const order of orders) {
-    for (const line of order.lineItems) {
-      const key = line.sku ?? line.productId ?? line.productTitle;
-      const existing = byProduct.get(key);
-
-      byProduct.set(
-        key,
-        existing === undefined
-          ? {
-              key,
-              productTitle: line.productTitle,
-              sku: line.sku,
-              quantitySold: line.quantity,
-              revenue: line.discountedTotal,
-            }
-          : {
-              ...existing,
-              quantitySold: existing.quantitySold + line.quantity,
-              revenue: addMoney(existing.revenue, line.discountedTotal),
-            },
-      );
-    }
-  }
-
-  return [...byProduct.values()].sort((a, b) => {
-    const byRevenue = b.revenue.minorUnits - a.revenue.minorUnits;
-    return byRevenue !== 0 ? byRevenue : a.productTitle.localeCompare(b.productTitle);
-  });
-}
 
 /** True when any order carried more line items than were fetched. */
 export function hasTruncatedLineItems(orders: readonly SalesOrder[]): boolean {

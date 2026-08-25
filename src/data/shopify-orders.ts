@@ -171,6 +171,8 @@ function toSalesOrder(order: ShopifyOrder, timeZone: string): SalesOrder {
     unitPrice: line.unitPrice,
     discountedTotal: line.discountedTotal,
     productId: line.productId,
+    variantId: line.variantId,
+    variantTitle: line.variantTitle,
   }));
 
   return {

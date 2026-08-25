@@ -87,6 +87,7 @@ export const ORDERS_DETAILED_QUERY = `
             originalUnitPriceSet { shopMoney { amount currencyCode } }
             discountedTotalSet { shopMoney { amount currencyCode } }
             product { id }
+            variant { id title }
           }
         }
       }

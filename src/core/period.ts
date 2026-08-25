@@ -266,6 +266,44 @@ export function monthGrid(monthStart: string): readonly (readonly (string | null
   return Array.from({ length: cells.length / 7 }, (_, week) => cells.slice(week * 7, week * 7 + 7));
 }
 
+export type MonthSlice = {
+  /** First day of the month, `YYYY-MM-01`. */
+  readonly month: string;
+  /** Days of that month that fall inside the range. */
+  readonly daysInRange: number;
+  /** Days that month has in total. */
+  readonly daysInMonth: number;
+};
+
+/**
+ * Split a range into the months it touches, with the day counts of each.
+ *
+ * This is what makes a monthly fixed expense allocable to an arbitrary period.
+ * The share is computed per month rather than from an average month length,
+ * because months differ: a day of a 28-day February carries more of the rent
+ * than a day of a 31-day January, and averaging would misstate both.
+ */
+export function monthSlices(range: DateRange): readonly MonthSlice[] {
+  const slices: MonthSlice[] = [];
+  let cursor = startOfMonth(range.start);
+
+  while (cursor <= range.end) {
+    const monthEnd = addDays(addMonths(cursor, 1), -1);
+    const overlapStart = cursor > range.start ? cursor : range.start;
+    const overlapEnd = monthEnd < range.end ? monthEnd : range.end;
+
+    slices.push({
+      month: cursor,
+      daysInRange: daysBetween({ start: overlapStart, end: overlapEnd }),
+      daysInMonth: daysBetween({ start: cursor, end: monthEnd }),
+    });
+
+    cursor = addMonths(cursor, 1);
+  }
+
+  return slices;
+}
+
 /** True when `date` falls inside the range, inclusive. */
 export function isWithinRange(date: string, range: DateRange): boolean {
   return date >= range.start && date <= range.end;

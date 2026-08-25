@@ -99,6 +99,41 @@ export function moneyRatio(numerator: Money, denominator: Money): number | null 
   return numerator.minorUnits / denominator.minorUnits;
 }
 
+/**
+ * Strip VAT out of a VAT-inclusive amount.
+ *
+ * `ex = incl / (1 + rate)`, done as integer arithmetic: multiplying before
+ * dividing keeps the intermediate exact, where dividing first would lose
+ * agorot on every call.
+ *
+ * Rounding is half away from zero, applied here and only here. Callers should
+ * total VAT-inclusive amounts first and strip VAT once from the total, rather
+ * than stripping it per line and summing — the second rounds many times and
+ * drifts from what an accountant would compute.
+ */
+export function excludeVat(amount: Money, rateBasisPoints: number): Money {
+  if (rateBasisPoints < 0) {
+    throw new Error(`A VAT rate cannot be negative, received ${rateBasisPoints}.`);
+  }
+
+  const denominator = 10_000 + rateBasisPoints;
+  const product = amount.minorUnits * 10_000;
+
+  if (!Number.isSafeInteger(product)) {
+    throw new Error(`Removing VAT from ${amount.minorUnits} leaves the safe integer range.`);
+  }
+
+  const quotient = product / denominator;
+  const rounded = quotient < 0 ? -Math.round(-quotient) : Math.round(quotient);
+
+  return money(rounded, amount.currency);
+}
+
+/** The VAT contained in a VAT-inclusive amount: the part that is not revenue. */
+export function vatPortion(amount: Money, rateBasisPoints: number): Money {
+  return subtractMoney(amount, excludeVat(amount, rateBasisPoints));
+}
+
 /** Apply a rate expressed in basis points (1 bp = 0.01%). Integer-safe. */
 export function applyBasisPoints(amount: Money, basisPoints: number): Money {
   const product = (amount.minorUnits * basisPoints) / 10_000;

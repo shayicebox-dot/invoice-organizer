@@ -22,8 +22,26 @@ export type FixedExpense = {
 };
 
 export type ShippingCostConfig = {
-  /** Average fulfilment cost per order, minor units. `null` until measured. */
-  readonly costPerOrderMinorUnits: number | null;
+  /**
+   * Cost of shipping one physical box to the customer, VAT inclusive.
+   *
+   * ICEBOX pays ₪40 including VAT per 10 boxes shipped, and the rate is linear,
+   * so one box is ₪4. Stated per box rather than per pack: a customer can
+   * combine packs freely — 30 boxes is a 20 and a 10 — so nothing may be costed
+   * from the pack a line was sold as.
+   */
+  readonly costPerBoxInclVatMinorUnits: number | null;
+  readonly currency: CurrencyCode;
+};
+
+export type ProductCostConfig = {
+  /**
+   * Fully landed cost of one physical box, VAT inclusive.
+   *
+   * ₪120 including VAT per 10 boxes, after China freight and arrival at the
+   * Israeli warehouse, so ₪12 per box. Linear at every quantity.
+   */
+  readonly costPerBoxInclVatMinorUnits: number | null;
   readonly currency: CurrencyCode;
 };
 
@@ -36,7 +54,14 @@ export type PaymentProcessingConfig = {
 };
 
 export type CostConfig = {
+  readonly productCost: ProductCostConfig;
   readonly shipping: ShippingCostConfig;
+  /**
+   * Simplified variable operating costs, as a share of net revenue excluding
+   * VAT. A deliberate simplification standing in for payment fees, packaging
+   * and returns handling until each is measured separately.
+   */
+  readonly variableOperatingRateBasisPoints: number | null;
   readonly paymentProcessing: PaymentProcessingConfig;
   /** Recurring monthly overheads. Empty until entered in Settings. */
   readonly fixedExpenses: readonly FixedExpense[];
@@ -81,18 +106,50 @@ export const BUSINESS_CONFIG: BusinessConfig = {
   // the same time as the Google Ads integration, not before.
   adPlatforms: ['meta'],
   costs: {
-    shipping: { costPerOrderMinorUnits: null, currency: 'ILS' },
+    // ₪120 incl VAT per 10 boxes → ₪12 per box.
+    productCost: { costPerBoxInclVatMinorUnits: 1_200, currency: 'ILS' },
+    // ₪40 incl VAT per 10 boxes → ₪4 per box.
+    shipping: { costPerBoxInclVatMinorUnits: 400, currency: 'ILS' },
+    // 5% of net revenue excluding VAT.
+    variableOperatingRateBasisPoints: 500,
     paymentProcessing: { rateBasisPoints: null, fixedFeeMinorUnits: null, currency: 'ILS' },
-    fixedExpenses: [],
+    fixedExpenses: [
+      { id: 'warehouse', label: 'Warehouse', monthlyMinorUnits: 250_000, currency: 'ILS' },
+      { id: 'employee', label: 'Employee', monthlyMinorUnits: 150_000, currency: 'ILS' },
+    ],
     fallbackUnitCostMinorUnits: null,
   },
 };
 
+/**
+ * Israeli VAT, as a dated schedule rather than a single number.
+ *
+ * The rate changes by law and has done recently — 17% until the end of 2024,
+ * 18% from 1 January 2025. A figure for a past period must use the rate that
+ * applied then, so the schedule is kept and looked up by date. Newest first.
+ */
+export type VatRatePeriod = {
+  /** Inclusive first day this rate applied, `YYYY-MM-DD`. */
+  readonly from: string;
+  readonly basisPoints: number;
+};
+
+export const VAT_RATE_SCHEDULE: readonly VatRatePeriod[] = [
+  { from: '2025-01-01', basisPoints: 1_800 },
+  { from: '2013-06-02', basisPoints: 1_700 },
+];
+
 /** True once at least one cost assumption has been configured. */
 export function hasCostConfiguration(config: CostConfig = BUSINESS_CONFIG.costs): boolean {
   return (
-    config.shipping.costPerOrderMinorUnits !== null ||
-    config.paymentProcessing.rateBasisPoints !== null ||
+    config.productCost.costPerBoxInclVatMinorUnits !== null ||
+    config.shipping.costPerBoxInclVatMinorUnits !== null ||
+    config.variableOperatingRateBasisPoints !== null ||
     config.fixedExpenses.length > 0
   );
+}
+
+/** The VAT rate in force on a given date, or `null` before the schedule starts. */
+export function vatRateOn(date: string): number | null {
+  return VAT_RATE_SCHEDULE.find((period) => date >= period.from)?.basisPoints ?? null;
 }
