@@ -49,7 +49,9 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
 
       {data.lineItemsTruncated ? (
         <p className="rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs leading-relaxed text-foreground-muted">
-          At least one order has more than 100 line items; only the first 100 are listed for it.
+          At least one order has more than 100 line items. Gross sales are built from line items, so
+          this period&rsquo;s figures are understated and will not reconcile with Shopify until the
+          period is narrowed.
         </p>
       ) : null}
 

@@ -74,7 +74,7 @@ function emptyCaveats(range: DateRange, error: DataCaveats['error']): DataCaveat
 
 export async function getSalesPageData(range: DateRange): Promise<SalesPageData> {
   const currency = BUSINESS_CONFIG.reportingCurrency;
-  const sales = await getSalesForPeriod(range, true);
+  const sales = await getSalesForPeriod(range);
 
   if (!sales.ok) {
     return {
@@ -117,7 +117,7 @@ export async function getSalesPageData(range: DateRange): Promise<SalesPageData>
 
 export async function getProductsPageData(range: DateRange): Promise<ProductsPageData> {
   const currency = BUSINESS_CONFIG.reportingCurrency;
-  const sales = await getSalesForPeriod(range, true);
+  const sales = await getSalesForPeriod(range);
 
   if (!sales.ok) {
     return {

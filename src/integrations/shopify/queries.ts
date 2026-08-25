@@ -39,34 +39,13 @@ export const ACCESS_SCOPES_QUERY = `
  * Deliberately separate from the detailed query: line items multiply the
  * query's cost against Shopify's rate limit, and the KPI row does not use them.
  */
-export const ORDERS_SUMMARY_QUERY = `
-  query IceboxOrdersSummary($first: Int!, $after: String, $query: String!) {
-    orders(first: $first, after: $after, query: $query, sortKey: PROCESSED_AT) {
-      pageInfo { hasNextPage endCursor }
-      nodes {
-        id
-        name
-        processedAt
-        cancelledAt
-        test
-        taxesIncluded
-        displayFinancialStatus
-        subtotalPriceSet { shopMoney { amount currencyCode } }
-        totalDiscountsSet { shopMoney { amount currencyCode } }
-        totalRefundedSet { shopMoney { amount currencyCode } }
-        customer { id displayName }
-      }
-    }
-  }
-`;
-
 /**
  * Refunds, for reconciling to Shopify's "sales reversals".
  *
- * Queried over orders **updated** in a window rather than orders placed in it,
- * because a return is very often processed against an order placed weeks
- * earlier. `refundLineItems.subtotalSet` is the product value returned,
- * excluding tax and shipping — which is exactly what Shopify Analytics counts
+ * Queried over orders **updated** since the window opened rather than orders
+ * placed in it, because a return is very often processed against an order
+ * placed weeks earlier. `refundLineItems.subtotalSet` is the product value
+ * returned, excluding tax and shipping — which is what Shopify Analytics counts
  * as a sales reversal, and is not the same as the order's `totalRefundedSet`.
  */
 export const ORDER_REFUNDS_QUERY = `
@@ -96,7 +75,23 @@ export const ORDER_REFUNDS_QUERY = `
   }
 `;
 
-/** Orders with their line items — for the Sales and Products screens. */
+/**
+ * Orders with their line items.
+ *
+ * Line items are always requested, because gross sales can only be built from
+ * them. `Order.subtotalPriceSet` cannot be used: Shopify documents it as the
+ * total "after discounts and returns", so it shrinks when an item is returned.
+ * Reconstructing gross from it and then subtracting the period's returns
+ * deducts the same return twice.
+ *
+ * `originalTotalSet` is "the total price of the line item **when the order was
+ * created**", and `quantity` "includes refunded and removed units" — neither
+ * moves when goods come back, which is exactly what a gross sales figure needs.
+ *
+ * `discountAllocations` carries every discount attached to the line, including
+ * order-level and code-based ones. `discountedTotalSet` deliberately excludes
+ * both, so deriving discounts from it would understate them.
+ */
 export const ORDERS_DETAILED_QUERY = `
   query IceboxOrdersDetailed($first: Int!, $after: String, $query: String!, $lineItems: Int!) {
     orders(first: $first, after: $after, query: $query, sortKey: PROCESSED_AT) {
@@ -109,8 +104,6 @@ export const ORDERS_DETAILED_QUERY = `
         test
         taxesIncluded
         displayFinancialStatus
-        subtotalPriceSet { shopMoney { amount currencyCode } }
-        totalDiscountsSet { shopMoney { amount currencyCode } }
         totalRefundedSet { shopMoney { amount currencyCode } }
         customer { id displayName }
         lineItems(first: $lineItems) {
@@ -121,7 +114,11 @@ export const ORDERS_DETAILED_QUERY = `
             sku
             quantity
             originalUnitPriceSet { shopMoney { amount currencyCode } }
+            originalTotalSet { shopMoney { amount currencyCode } }
             discountedTotalSet { shopMoney { amount currencyCode } }
+            discountAllocations {
+              allocatedAmountSet { shopMoney { amount currencyCode } }
+            }
             product { id }
             variant { id title }
           }
