@@ -11,7 +11,8 @@ import { readBoxMapping } from '@/data/box-mapping-store';
 import { formatDateRange } from '@/lib/utils/format';
 import { resolvePreset } from '@/core/period';
 import { todayInBusinessTimeZone } from '@/lib/utils/today';
-import { isMetaConfigured, isShopifyConfigured } from '@/lib/config/env';
+import { DeploymentCard } from '@/components/settings/deployment-card';
+import { deploymentInfo, isMetaConfigured, isShopifyConfigured } from '@/lib/config/env';
 import { BUSINESS_CONFIG } from '@/lib/config/business';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -41,6 +42,11 @@ export default async function SettingsPage() {
         title="Settings"
         description="Business profile, cost assumptions and data source connections."
       />
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium tracking-tight text-foreground">Deployment</h2>
+        <DeploymentCard {...deploymentInfo()} />
+      </section>
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium tracking-tight text-foreground">Cost model</h2>
