@@ -71,8 +71,12 @@ export type FixedExpenseLine = {
 export type ProfitInputs = {
   readonly currency: CurrencyCode;
   readonly range: DateRange;
-  /** Shopify net revenue: gross − discounts − refunds, VAT inclusive. */
+  /** Shopify net revenue: gross − discounts − sales reversals, VAT inclusive. */
   readonly netRevenueInclVat: Money | null;
+  /** The three Shopify lines that produced it, so the top line can explain itself. */
+  readonly grossSales: Money | null;
+  readonly discounts: Money | null;
+  readonly salesReversals: Money | null;
   readonly orderCount: number | null;
   /** Physical boxes shipped. `null` when no line could be mapped. */
   readonly physicalBoxes: number | null;
@@ -85,6 +89,11 @@ export type ProfitInputs = {
 export type ProfitAndLoss = {
   readonly currency: CurrencyCode;
   readonly range: DateRange;
+
+  // The Shopify sales lines the revenue figure is built from.
+  readonly grossSales: Money | null;
+  readonly discounts: Money | null;
+  readonly salesReversals: Money | null;
 
   // 1–3. The revenue line, before and after VAT.
   readonly netRevenueInclVat: Money | null;
@@ -238,6 +247,9 @@ export function computeProfitAndLoss(inputs: ProfitInputs): ProfitAndLoss {
   return {
     currency,
     range,
+    grossSales: inputs.grossSales,
+    discounts: inputs.discounts,
+    salesReversals: inputs.salesReversals,
     netRevenueInclVat,
     vat,
     revenueExVat,
@@ -283,13 +295,40 @@ export type WaterfallStep = {
  */
 export function profitWaterfall(pnl: ProfitAndLoss): readonly WaterfallStep[] {
   return [
+    // The three lines Shopify Analytics reports, so the revenue figure can be
+    // checked against the source without leaving the page. A disagreement is
+    // then attributable to a line rather than to the total.
+    {
+      id: 'gross-sales',
+      label: 'Gross sales',
+      kind: 'start',
+      amount: pnl.grossSales,
+      runningTotal: pnl.grossSales,
+      formula: 'Line item prices when each order was placed, before discounts',
+    },
+    {
+      id: 'discounts',
+      label: 'Discounts',
+      kind: 'deduction',
+      amount: pnl.discounts,
+      runningTotal: runningAfter(pnl.grossSales, [pnl.discounts]),
+      formula: 'Every discount allocated to those lines',
+    },
+    {
+      id: 'sales-reversals',
+      label: 'Sales reversals',
+      kind: 'deduction',
+      amount: pnl.salesReversals,
+      runningTotal: pnl.netRevenueInclVat,
+      formula: 'Goods returned in this period, dated by the refund',
+    },
     {
       id: 'revenue-incl-vat',
       label: 'Revenue incl VAT',
-      kind: 'start',
+      kind: 'subtotal',
       amount: pnl.netRevenueInclVat,
       runningTotal: pnl.netRevenueInclVat,
-      formula: 'Shopify gross sales − discounts − refunds',
+      formula: 'Gross sales − discounts − sales reversals (Shopify Net sales)',
     },
     {
       id: 'vat',
@@ -521,6 +560,9 @@ export function emptyProfitAndLoss(
     currency,
     range,
     netRevenueInclVat: null,
+    grossSales: null,
+    discounts: null,
+    salesReversals: null,
     orderCount: null,
     physicalBoxes: null,
     adSpend: null,

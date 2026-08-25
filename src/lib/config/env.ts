@@ -136,6 +136,40 @@ export function integrationTestSecret(): string | null {
   return secret.length > 0 ? secret : null;
 }
 
+/**
+ * Which build is actually running.
+ *
+ * Read from the platform's own git metadata rather than anything baked into the
+ * source, so it cannot drift. Without this a deployment cannot say which commit
+ * it is serving, and "the fix is merged but production disagrees" has no
+ * answer short of guessing — which is exactly the situation this exists to end.
+ *
+ * Every value is absent in local development, and that absence is reported
+ * rather than filled in.
+ */
+export function deploymentInfo(): {
+  commitSha: string | null;
+  shortSha: string | null;
+  branch: string | null;
+  environment: string | null;
+  commitMessage: string | null;
+} {
+  const value = (name: string): string | null => {
+    const raw = process.env[name];
+    return raw === undefined || raw.length === 0 ? null : raw;
+  };
+
+  const commitSha = value('VERCEL_GIT_COMMIT_SHA');
+
+  return {
+    commitSha,
+    shortSha: commitSha === null ? null : commitSha.slice(0, 7),
+    branch: value('VERCEL_GIT_COMMIT_REF'),
+    environment: value('VERCEL_ENV'),
+    commitMessage: value('VERCEL_GIT_COMMIT_MESSAGE'),
+  };
+}
+
 /** True when Supabase credentials are configured — lets the shell render without them. */
 export function isSupabaseConfigured(): boolean {
   return publicEnv.supabaseUrl.length > 0 && publicEnv.supabaseAnonKey.length > 0;
