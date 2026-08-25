@@ -154,23 +154,17 @@ function BoxSourceTag({
   readonly source: BoxCountSource;
   readonly boxesPerUnit: number | null;
 }) {
-  if (source === 'unresolved') {
+  if (source === 'unmapped') {
     return (
       <span className="rounded bg-negative/10 px-1.5 py-0.5 text-[10px] text-negative">
-        No box count
+        Needs setting in Settings
       </span>
     );
   }
 
-  const label = boxesPerUnit === null ? '' : `${boxesPerUnit} boxes/unit · `;
-
-  return source === 'title' ? (
-    <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] text-foreground-muted">
-      {label}from title
-    </span>
-  ) : (
+  return (
     <span className="rounded bg-surface-muted px-1.5 py-0.5 text-[10px] text-foreground-subtle">
-      {label}mapped
+      {boxesPerUnit === null ? 'mapped' : `${boxesPerUnit} boxes/unit`}
     </span>
   );
 }

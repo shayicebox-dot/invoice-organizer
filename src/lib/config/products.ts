@@ -1,54 +1,25 @@
 /**
- * Mapping from what Shopify sells to what ICEBOX physically ships.
+ * Fallback mapping from Shopify variant to physical box count.
  *
- * This is the single place that answers "how many physical boxes is this line
- * item?", and it exists because the two are not the same number. One unit of a
- * "20 box pack" is twenty boxes, and a customer can combine packs freely: 30
- * boxes is a 20 and a 10, 60 boxes is any combination totalling 60. Costing
- * anything from the pack an order was named after would therefore be wrong.
+ * The live mapping lives in the database and is edited in Settings → Product
+ * mapping; this is only what the app falls back to when the database is not
+ * connected, so that a fresh deployment is not entirely blind.
  *
- * Every cost in the engine is per physical box, so this mapping is what the
- * whole profit calculation rests on. Get it wrong and every figure downstream
- * is wrong in the same direction.
- *
- * Prefer variant IDs. A variant ID is stable: renaming a product in Shopify
- * does not change it, and two products cannot collide. Titles are neither
- * stable nor unique, which is why they are only a fallback.
+ * Box counts are keyed by variant ID and nothing else. Product titles are never
+ * parsed for a number: "Asics Gel NYC Barely rose - 40" is a shoe in size 40,
+ * and costing it as forty boxes would charge ₪480 of product cost against a
+ * pair of trainers.
  */
 
-export type BoxPackMapping = {
-  /**
-   * Shopify variant GID → physical boxes per unit sold. The authoritative map.
-   * Example: `'gid://shopify/ProductVariant/123'` → `20`.
-   */
-  readonly byVariantId: Readonly<Record<string, number>>;
-  /** Shopify product GID → boxes per unit, for products with a single variant. */
-  readonly byProductId: Readonly<Record<string, number>>;
-  /**
-   * Whether an unmapped line may fall back to reading a count out of its title.
-   *
-   * On by default so the engine produces figures before every ID has been
-   * entered. A line resolved this way is marked as such everywhere it appears,
-   * and Settings lists them so the real IDs can be pinned down. Turning this
-   * off makes any unmapped line report no box count at all, which withholds
-   * COGS rather than guessing it.
-   */
-  readonly allowTitleFallback: boolean;
+/** Variant GID → physical boxes per unit. `0` means "not packaging". */
+export const SEED_BOX_MAPPING: Readonly<Record<string, number>> = {
+  // Confirmed by the owner.
+  'gid://shopify/ProductVariant/43783608762454': 10,
+  'gid://shopify/ProductVariant/44628331987030': 0,
 };
 
-/**
- * The live mapping.
- *
- * `byVariantId` is intentionally empty until the real variant IDs are read off
- * the ICEBOX store — an invented ID would silently match nothing, which is
- * worse than an empty map that says so. Settings → Product mapping lists every
- * product seen in the selected period with its variant ID, ready to paste here.
- */
-export const BOX_PACK_MAPPING: BoxPackMapping = {
-  byVariantId: {},
-  byProductId: {},
-  allowTitleFallback: true,
-};
+/** The counts offered as one-click choices in the mapping screen. */
+export const BOX_COUNT_PRESETS: readonly number[] = [0, 10, 20, 50];
 
-/** Bounds a title-derived count, so a stray number cannot become 9,999 boxes. */
-export const MAX_BOXES_PER_UNIT = 500;
+/** Upper bound on a box count, so a typo cannot become 9,999 boxes. */
+export const MAX_BOXES_PER_UNIT = 1000;

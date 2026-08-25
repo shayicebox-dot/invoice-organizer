@@ -7,6 +7,8 @@ import { ShopifyConnectionCard } from '@/components/settings/shopify-connection-
 import { MetaConnectionCard } from '@/components/settings/meta-connection-card';
 import { ProductMappingCard } from '@/components/settings/product-mapping-card';
 import { getProductsPageData } from '@/data/sales-source';
+import { readBoxMapping } from '@/data/box-mapping-store';
+import { formatDateRange } from '@/lib/utils/format';
 import { resolvePreset } from '@/core/period';
 import { todayInBusinessTimeZone } from '@/lib/utils/today';
 import { isMetaConfigured, isShopifyConfigured } from '@/lib/config/env';
@@ -26,7 +28,10 @@ export default async function SettingsPage() {
   // A recent window, fixed rather than picked: this table is for checking the
   // cost model's foundation, not for reporting a period.
   const mappingRange = resolvePreset('last30', todayInBusinessTimeZone());
-  const recent = await getProductsPageData(mappingRange);
+  const [recent, mappingState] = await Promise.all([
+    getProductsPageData(mappingRange),
+    readBoxMapping(),
+  ]);
   const shopifyConfigured = isShopifyConfigured();
   const metaConfigured = isMetaConfigured();
 
@@ -41,8 +46,9 @@ export default async function SettingsPage() {
         <h2 className="text-sm font-medium tracking-tight text-foreground">Cost model</h2>
         <ProductMappingCard
           rows={recent.mapping}
-          range={mappingRange}
-          allMapped={recent.boxes.complete && recent.boxes.titleResolvedLines === 0}
+          rangeLabel={formatDateRange(mappingRange)}
+          writable={mappingState.writable}
+          unavailableReason={mappingState.unavailableReason}
         />
       </section>
 

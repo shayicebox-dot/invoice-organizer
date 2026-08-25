@@ -133,7 +133,7 @@ export async function getDashboardData(range: DateRange): Promise<DashboardData>
     return {
       range,
       inputs: { ...emptyInputs(), metaSpend: marketing.spend },
-      profitability: buildProfitability({
+      profitability: await buildProfitability({
         range,
         orders: [],
         totals: emptyTotals(BUSINESS_CONFIG.reportingCurrency),
@@ -157,12 +157,12 @@ export async function getDashboardData(range: DateRange): Promise<DashboardData>
     };
   }
 
-  const totals = aggregatePeriod(sales.orders, sales.currency);
+  const totals = aggregatePeriod(sales.orders, sales.currency, sales.salesReversals);
   const marketing = await getMetaSpend(sales.coverage.range);
 
   return {
     range: sales.coverage.range,
-    profitability: buildProfitability({
+    profitability: await buildProfitability({
       range: sales.coverage.range,
       orders: sales.orders,
       totals,
@@ -173,7 +173,7 @@ export async function getDashboardData(range: DateRange): Promise<DashboardData>
       ...emptyInputs(),
       grossRevenue: totals.grossSales,
       discounts: totals.discounts,
-      refunds: totals.refunds,
+      refunds: totals.salesReversals,
       orderCount: totals.orderCount,
       metaSpend: marketing.spend,
     },

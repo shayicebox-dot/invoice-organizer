@@ -6,6 +6,7 @@ import { DateRangePicker } from '@/components/dashboard/date-range-picker';
 import { PeriodNotice } from '@/components/dashboard/period-notice';
 import { DataNotices } from '@/components/sales/data-notices';
 import { OrdersTable } from '@/components/sales/orders-table';
+import { ReconciliationCard } from '@/components/sales/reconciliation-card';
 import { getSalesPageData } from '@/data/sales-source';
 import { reportingPeriod } from '@/lib/utils/reporting-period';
 import { formatCount, formatDateRange, formatMoney } from '@/lib/utils/format';
@@ -66,7 +67,7 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
           <dl className="grid gap-x-8 sm:grid-cols-2">
             <TotalRow label="Gross sales" value={formatMoney(totals.grossSales)} sign="+" />
             <TotalRow label="Discounts" value={formatMoney(totals.discounts)} sign="−" />
-            <TotalRow label="Refunds" value={formatMoney(totals.refunds)} sign="−" />
+            <TotalRow label="Returns" value={formatMoney(totals.salesReversals)} sign="−" />
             <TotalRow label="Net revenue" value={formatMoney(totals.netRevenue)} emphasis />
             <TotalRow label="Orders" value={formatCount(totals.orderCount)} />
             <TotalRow
@@ -76,6 +77,13 @@ export default async function SalesPage({ searchParams }: SalesPageProps) {
           </dl>
         </CardContent>
       </Card>
+
+      <ReconciliationCard
+        totals={totals}
+        returns={data.returns}
+        returnsComplete={data.returnsComplete}
+        range={data.caveats.coverage.range}
+      />
 
       <OrdersTable orders={data.orders} />
     </div>

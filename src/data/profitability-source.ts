@@ -17,7 +17,8 @@ import {
   type ProfitInputs,
 } from '@/core/metrics/profitability';
 import { BUSINESS_CONFIG, VAT_RATE_SCHEDULE, vatRateOn } from '@/lib/config/business';
-import { BOX_PACK_MAPPING, MAX_BOXES_PER_UNIT } from '@/lib/config/products';
+import { readBoxMapping } from '@/data/box-mapping-store';
+
 
 /**
  * Assembles the profit and loss for a period from the sources that feed it.
@@ -95,14 +96,10 @@ export function fixedExpenseInputs(): ProfitInputs['fixedExpenses'] {
   }));
 }
 
-/** The box mapping, as the resolver expects it. */
-export function boxMappingConfig(): BoxMappingConfig {
-  return {
-    byVariantId: BOX_PACK_MAPPING.byVariantId,
-    byProductId: BOX_PACK_MAPPING.byProductId,
-    allowTitleFallback: BOX_PACK_MAPPING.allowTitleFallback,
-    maxBoxesPerUnit: MAX_BOXES_PER_UNIT,
-  };
+/** The box mapping in force, read from the store. */
+export async function boxMappingConfig(): Promise<BoxMappingConfig> {
+  const { config } = await readBoxMapping();
+  return config;
 }
 
 /**
@@ -207,26 +204,27 @@ export type ProfitabilityResult = {
  * confident loss equal to the fixed expenses. The engine is handed `null`
  * instead, so every derived figure reports as unavailable.
  */
-export function buildProfitability(params: {
+export async function buildProfitability(params: {
   readonly range: DateRange;
   readonly orders: readonly SalesOrder[];
   readonly totals: PeriodTotals;
   readonly sourceAnswered: boolean;
   readonly adSpend: Money | null;
-}): ProfitabilityResult {
+}): Promise<ProfitabilityResult> {
   const { range, orders, totals, sourceAnswered, adSpend } = params;
   const currency = BUSINESS_CONFIG.reportingCurrency;
 
   const rates = costRatesForRange(range);
   const vat = resolveVatForRange(range);
-  const mappingConfig = boxMappingConfig();
+  const mappingConfig = await boxMappingConfig();
 
   const boxes = tallyBoxes(orders, mappingConfig);
   const mapping = describeMapping(orders, mappingConfig);
 
-  // No box could be counted at all — report the count as unknown rather than as
-  // a genuine zero, which would price the period's product cost at nothing.
-  const physicalBoxes = !sourceAnswered || (boxes.boxes === 0 && !boxes.complete) ? null : boxes.boxes;
+  // A variant with no decision recorded contributes no boxes, so an ordinary
+  // product is never costed as packaging. `boxes.complete` says whether that
+  // silence is hiding a real box pack, and the screens act on it.
+  const physicalBoxes = sourceAnswered ? boxes.boxes : null;
 
   const pnl = computeProfitAndLoss({
     currency,

@@ -140,3 +140,17 @@ export function integrationTestSecret(): string | null {
 export function isSupabaseConfigured(): boolean {
   return publicEnv.supabaseUrl.length > 0 && publicEnv.supabaseAnonKey.length > 0;
 }
+
+/**
+ * True when the server can write to the database.
+ *
+ * A stricter test than `isSupabaseConfigured`: reads through the service-role
+ * client also need `SUPABASE_SERVICE_ROLE_KEY`, which is never present in the
+ * browser. Checked without reading the key's value.
+ */
+export function isSupabaseWritable(): boolean {
+  if (typeof window !== 'undefined') return false;
+  return (
+    publicEnv.supabaseUrl.length > 0 && (process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').length > 0
+  );
+}

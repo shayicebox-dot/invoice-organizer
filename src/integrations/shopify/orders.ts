@@ -2,7 +2,11 @@ import 'server-only';
 
 import { shopifyGraphQL, type ThrottleStatus } from '@/integrations/shopify/client';
 import { getShopifyConfig, HISTORICAL_ORDERS_SCOPE } from '@/integrations/shopify/config';
-import { ORDERS_DETAILED_QUERY, ORDERS_SUMMARY_QUERY } from '@/integrations/shopify/queries';
+import {
+  ORDER_REFUNDS_QUERY,
+  ORDERS_DETAILED_QUERY,
+  ORDERS_SUMMARY_QUERY,
+} from '@/integrations/shopify/queries';
 import { ShopifyResponseError } from '@/integrations/shopify/errors';
 import { getAccessToken, getTokenSnapshot } from '@/integrations/shopify/token';
 import {
@@ -14,7 +18,8 @@ import {
   requireRecord,
   requireString,
 } from '@/integrations/shopify/json';
-import { moneyFromDecimalString, parseCurrencyCode, type Money } from '@/core/money';
+import { addMoney, moneyFromDecimalString, parseCurrencyCode, zeroMoney, type Money } from '@/core/money';
+import { BUSINESS_CONFIG } from '@/lib/config/business';
 
 /**
  * Reading orders from Shopify.
@@ -191,6 +196,126 @@ export async function fetchAllOrders(
   }
 
   return { orders: collected, complete: false };
+}
+
+/**
+ * One refund, dated by when it happened.
+ *
+ * `productSubtotal` is the value of the goods returned, excluding tax and
+ * shipping. That is what Shopify Analytics counts as a sales reversal, and it
+ * is deliberately not `totalRefundedSet` — the latter is the cash returned,
+ * which also carries shipping and tax and so cannot be subtracted from a
+ * product-only gross sales figure.
+ */
+export type ShopifyRefund = {
+  readonly id: string;
+  readonly orderId: string;
+  readonly orderNumber: string;
+  /** When the refund was created — the date the reversal belongs to. */
+  readonly createdAt: string;
+  readonly productSubtotal: Money;
+  /** Total cash returned, including shipping and tax. Kept for display only. */
+  readonly totalRefunded: Money;
+  /** True when the refund has more line items than one page returned. */
+  readonly hasMoreLines: boolean;
+};
+
+export type FetchRefundsParams = {
+  /** Orders updated at or after this instant, ISO 8601. */
+  readonly updatedAtMin: string;
+  readonly updatedAtMax: string;
+  readonly after?: string;
+};
+
+const REFUNDS_PER_ORDER = 20;
+const REFUND_LINES_PER_REFUND = 100;
+
+/**
+ * Every refund on orders touched in a window.
+ *
+ * Searched by `updated_at`, not `processed_at`: refunding an order updates it,
+ * so this catches returns processed against orders placed long before the
+ * window. The caller then keeps only the refunds whose own date falls inside
+ * the reporting range.
+ */
+export async function fetchRefundsInWindow(
+  params: FetchRefundsParams,
+  maxPages = 40,
+): Promise<{ readonly refunds: readonly ShopifyRefund[]; readonly complete: boolean }> {
+  const config = getShopifyConfig();
+  const collected: ShopifyRefund[] = [];
+  let cursor: string | null = params.after ?? null;
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const response = await shopifyGraphQL({
+      query: ORDER_REFUNDS_QUERY,
+      config,
+      variables: {
+        first: DEFAULT_PAGE_SIZE,
+        ...(cursor === null ? {} : { after: cursor }),
+        query: `updated_at:>='${params.updatedAtMin}' AND updated_at:<='${params.updatedAtMax}' AND test:false`,
+        refunds: REFUNDS_PER_ORDER,
+        refundLines: REFUND_LINES_PER_REFUND,
+      },
+    });
+
+    const orders = requireRecord(readField(requireRecord(response.data, 'data'), 'orders'), 'data.orders');
+    const nodes = requireArray(readField(orders, 'nodes'), 'data.orders.nodes');
+    const pageInfo = requireRecord(readField(orders, 'pageInfo'), 'data.orders.pageInfo');
+
+    for (const [index, node] of nodes.entries()) {
+      collected.push(...parseOrderRefunds(node, `data.orders.nodes[${index}]`));
+    }
+
+    const hasNextPage = readField(pageInfo, 'hasNextPage') === true;
+    const endCursor = optionalString(readField(pageInfo, 'endCursor'), 'data.orders.pageInfo.endCursor');
+
+    if (!hasNextPage || endCursor === null) {
+      return { refunds: collected, complete: true };
+    }
+
+    cursor = endCursor;
+  }
+
+  return { refunds: collected, complete: false };
+}
+
+function parseOrderRefunds(node: unknown, path: string): readonly ShopifyRefund[] {
+  const order = requireRecord(node, path);
+  const orderId = requireString(readField(order, 'id'), `${path}.id`);
+  const orderNumber = requireString(readField(order, 'name'), `${path}.name`);
+  const refunds = readField(order, 'refunds');
+
+  if (!Array.isArray(refunds)) return [];
+
+  return refunds.map((refundNode, index) => {
+    const refundPath = `${path}.refunds[${index}]`;
+    const refund = requireRecord(refundNode, refundPath);
+    const linesField = readField(refund, 'refundLineItems');
+    const lines = linesField === null || linesField === undefined
+      ? null
+      : requireRecord(linesField, `${refundPath}.refundLineItems`);
+    const lineNodes = lines === null ? [] : requireArray(readField(lines, 'nodes'), `${refundPath}.refundLineItems.nodes`);
+    const linePageInfo = lines === null ? null : requireRecord(readField(lines, 'pageInfo'), `${refundPath}.refundLineItems.pageInfo`);
+
+    const productSubtotal = lineNodes.reduce<Money>((total, lineNode, lineIndex) => {
+      const line = requireRecord(lineNode, `${refundPath}.refundLineItems.nodes[${lineIndex}]`);
+      return addMoney(
+        total,
+        parseMoneyBag(readField(line, 'subtotalSet'), `${refundPath}.refundLineItems.nodes[${lineIndex}].subtotalSet`),
+      );
+    }, zeroMoney(BUSINESS_CONFIG.reportingCurrency));
+
+    return {
+      id: requireString(readField(refund, 'id'), `${refundPath}.id`),
+      orderId,
+      orderNumber,
+      createdAt: requireString(readField(refund, 'createdAt'), `${refundPath}.createdAt`),
+      productSubtotal,
+      totalRefunded: parseMoneyBag(readField(refund, 'totalRefundedSet'), `${refundPath}.totalRefundedSet`),
+      hasMoreLines: linePageInfo !== null && readField(linePageInfo, 'hasNextPage') === true,
+    };
+  });
 }
 
 function parseOrder(node: unknown, path: string): ShopifyOrder {

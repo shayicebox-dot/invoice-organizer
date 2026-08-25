@@ -16,8 +16,19 @@ import type { DailyPoint, DailySeries } from '@/core/metrics/daily';
  *   × quantity, before any discount. Excludes shipping charged to the customer
  *   and excludes tax.
  * - **Discounts** — everything taken off those prices at checkout.
- * - **Refunds** — money returned to customers, as reported by Shopify.
- * - **Net revenue** — gross sales − discounts − refunds.
+ * - **Sales reversals (returns)** — the value of goods returned, excluding tax
+ *   and shipping, counted on **the day the refund happened**. This is Shopify
+ *   Analytics' `sales_reversals`, and getting it right is what makes the two
+ *   systems reconcile. Two traps are deliberately avoided:
+ *   1. A refund is dated by the refund, not by the order. A return processed in
+ *      August against a July order is an August reversal. Summing each order's
+ *      lifetime refund total instead misses every return against an order
+ *      placed before the window — and quietly overstates revenue.
+ *   2. The amount is the product subtotal, not the cash returned. Cash also
+ *      carries shipping and tax, which were never in gross sales, so
+ *      subtracting it from a product-only figure double-counts.
+ * - **Net revenue** — gross sales − discounts − sales reversals. Identical to
+ *   Shopify's Net sales.
  *
  * Net revenue is therefore product revenue actually kept. It is not the same
  * as money received: it excludes shipping income and tax, both of which arrive
@@ -56,7 +67,13 @@ export type SalesOrder = {
   readonly customer: string | null;
   readonly grossSales: Money;
   readonly discounts: Money;
+  /**
+   * Cash refunded against this order over its lifetime, whenever that happened.
+   * Shown on the order row for context; it is NOT what the period's reversals
+   * are built from — see `PeriodTotals.salesReversals`.
+   */
   readonly refunds: Money;
+  /** Gross − discounts for this order. Returns are a period-level figure. */
   readonly netRevenue: Money;
   readonly isCancelled: boolean;
   /** Shopify's own status, e.g. `PAID`, `PARTIALLY_REFUNDED`. Never invented. */
@@ -69,25 +86,41 @@ export type SalesOrder = {
 export type PeriodTotals = {
   readonly grossSales: Money;
   readonly discounts: Money;
-  readonly refunds: Money;
+  /**
+   * Goods returned in this period, product value only, dated by the refund.
+   * Shopify Analytics calls this "sales reversals".
+   */
+  readonly salesReversals: Money;
+  /** Gross − discounts − sales reversals. Shopify Analytics' "Net sales". */
   readonly netRevenue: Money;
   readonly orderCount: number;
 };
 
-/** Net revenue for one order: gross − discounts − refunds. */
-export function orderNetRevenue(gross: Money, discounts: Money, refunds: Money): Money {
-  return subtractMoney(subtractMoney(gross, discounts), refunds);
+/**
+ * Gross sales less discounts, for one order.
+ *
+ * Returns are deliberately not deducted here. A return belongs to the period it
+ * was processed in, which is frequently not the period the order was placed in,
+ * so it cannot be attributed to an order and still reconcile. Period-level
+ * reversals are subtracted once, in `aggregatePeriod`.
+ */
+export function orderSalesBeforeReturns(gross: Money, discounts: Money): Money {
+  return subtractMoney(gross, discounts);
 }
 
 export function aggregatePeriod(
   orders: readonly SalesOrder[],
   currency: CurrencyCode,
+  salesReversals: Money,
 ): PeriodTotals {
+  const grossSales = sumMoney(currency, orders.map((order) => order.grossSales));
+  const discounts = sumMoney(currency, orders.map((order) => order.discounts));
+
   return {
-    grossSales: sumMoney(currency, orders.map((order) => order.grossSales)),
-    discounts: sumMoney(currency, orders.map((order) => order.discounts)),
-    refunds: sumMoney(currency, orders.map((order) => order.refunds)),
-    netRevenue: sumMoney(currency, orders.map((order) => order.netRevenue)),
+    grossSales,
+    discounts,
+    salesReversals,
+    netRevenue: subtractMoney(subtractMoney(grossSales, discounts), salesReversals),
     orderCount: orders.length,
   };
 }
@@ -142,7 +175,7 @@ export function emptyTotals(currency: CurrencyCode): PeriodTotals {
   return {
     grossSales: zeroMoney(currency),
     discounts: zeroMoney(currency),
-    refunds: zeroMoney(currency),
+    salesReversals: zeroMoney(currency),
     netRevenue: zeroMoney(currency),
     orderCount: 0,
   };
