@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { NAV_SECTIONS } from '@/lib/config/navigation';
+import { isIsoDate } from '@/core/period';
 import { cn } from '@/lib/utils/cn';
 
 type SidebarNavProps = {
@@ -12,6 +13,20 @@ type SidebarNavProps = {
 
 export function SidebarNav({ onNavigate = () => {} }: SidebarNavProps) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  /**
+   * Carry the selected period across navigation.
+   *
+   * Without this, moving from the dashboard to Sales would drop `?from=&to=`
+   * and quietly reset the range to the default — so two screens the reader
+   * believes are showing the same period would not be. The dates are validated
+   * again on the server; this only decides whether to pass them along.
+   */
+  const from = searchParams.get('from');
+  const to = searchParams.get('to');
+  const periodQuery =
+    from !== null && to !== null && isIsoDate(from) && isIsoDate(to) ? { from, to } : undefined;
 
   return (
     <nav aria-label="Main" className="flex flex-1 flex-col gap-6 overflow-y-auto px-3 py-4">
@@ -28,7 +43,11 @@ export function SidebarNav({ onNavigate = () => {} }: SidebarNavProps) {
               return (
                 <li key={item.id}>
                   <Link
-                    href={item.href}
+                    href={
+                      periodQuery === undefined
+                        ? item.href
+                        : { pathname: item.href, query: periodQuery }
+                    }
                     onClick={onNavigate}
                     aria-current={isActive ? 'page' : undefined}
                     className={cn(

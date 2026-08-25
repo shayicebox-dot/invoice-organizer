@@ -8,13 +8,15 @@ type ModulePlaceholderProps = {
   readonly moduleId: string;
   /** What this module will own once its data sources are connected. */
   readonly upcoming: readonly string[];
+  /** Header controls — the period picker, so the range survives a visit here. */
+  readonly actions?: React.ReactNode;
 };
 
 /**
  * Standard shell for a module that has not been built yet.
  * Renders no figures — placeholders never imply data that does not exist.
  */
-export function ModulePlaceholder({ moduleId, upcoming }: ModulePlaceholderProps) {
+export function ModulePlaceholder({ moduleId, upcoming, actions }: ModulePlaceholderProps) {
   const item = NAV_ITEMS.find((navItem) => navItem.id === moduleId);
 
   if (!item) {
@@ -26,7 +28,12 @@ export function ModulePlaceholder({ moduleId, upcoming }: ModulePlaceholderProps
       <PageHeader
         title={item.label}
         description={item.description}
-        actions={<Badge tone="neutral">Not implemented</Badge>}
+        actions={
+          <>
+            {actions}
+            <Badge tone="neutral">Not implemented</Badge>
+          </>
+        }
       />
 
       <EmptyState
