@@ -135,7 +135,8 @@ src/
 │   ├── dashboard-source.ts     dashboard totals, daily series, recent orders
 │   ├── sales-source.ts         order-level and product-level reads
 │   ├── marketing-source.ts     Meta spend and campaign performance
-│   └── profitability-source.ts assembles the P&L from Shopify, Meta and config
+│   ├── profitability-source.ts assembles the P&L from Shopify, Meta and config
+│   └── box-mapping-store.ts    variant → box mapping, stored in the database
 ├── integrations/               external systems — server only
 │   ├── shopify/                Admin GraphQL client, connection test, orders
 │   └── meta/                   Marketing API client, connection test, insights
@@ -144,7 +145,7 @@ src/
 │   ├── auth/actions.ts         sign in and sign out (server actions)
 │   ├── auth/current-session.ts is this request signed in?
 │   ├── config/business.ts      business facts, cost model, VAT schedule
-│   ├── config/products.ts      Shopify variant → physical box count
+│   ├── config/products.ts      seed variant → box mapping, preset choices
 │   ├── config/env.ts           the only place that reads process.env
 │   ├── config/navigation.ts    single source of truth for navigation
 │   ├── supabase/client.ts      browser client (anon key, RLS)
@@ -207,6 +208,16 @@ or refreshing a link therefore reproduces the same figures. `last7` and
 part-day at the end would drag every rate down. A range that cannot be honoured
 is reported, never silently swapped — see `PeriodAdjustment`.
 
+**A box count comes only from an explicit variant mapping.**
+Nothing is ever read out of a product title. "Asics Gel NYC Barely rose - 40"
+is a shoe in size 40, and parsing it would charge ₪480 of product cost against
+a pair of trainers. The mapping is keyed by Shopify variant ID — the only
+identifier that survives a rename — stored in the database and edited in
+Settings → Product mapping, never in source code. A variant with no decision
+recorded counts as zero boxes, so an ordinary product is never costed as
+packaging; that silence is reported everywhere the figures are, because a real
+box pack left unset also costs nothing and would overstate profit.
+
 **Cost is per physical box, never per pack.**
 Customers combine packs freely — 30 boxes is a 20 and a 10, 60 boxes is any
 combination totalling 60 — so nothing may be costed from an order's size or a
@@ -224,11 +235,17 @@ box, because rounding many small amounts drifts from what a VAT return says.
 Everything below the VAT line in the P&L is ex VAT, and the VAT-inclusive
 figures Shopify reports are kept alongside rather than replaced.
 
-**Sales definitions are fixed in one place.**
+**Sales definitions match Shopify Analytics, line for line.**
 Gross sales are product prices before discounts, reconstructed as Shopify's
 `subtotalPrice + totalDiscounts` — at order level, because line items paginate.
-Net revenue is gross − discounts − refunds. AOV is net revenue ÷ orders. These
-live in `src/core/metrics/sales.ts` and are not re-derived per screen.
+Net revenue is gross − discounts − **sales reversals**, which is Shopify's Net
+sales. Two traps decide whether the two systems agree, and both are handled in
+`src/data/shopify-orders.ts`: a return is dated by **the refund**, not by the
+order it was against, so returns processed this period against earlier orders
+are counted; and the amount is the **product subtotal**, not the cash returned,
+because cash also carries shipping and tax that were never in gross sales. The
+Sales screen shows all four lines in Shopify's own vocabulary so any
+disagreement is attributable rather than a single total to argue with.
 
 **Say what a figure does not include.**
 Where the store prices tax-inclusively, Shopify's amounts carry VAT, and the

@@ -8,7 +8,7 @@ import {
   type PeriodTotals,
   type SalesOrder,
 } from '@/core/metrics/sales';
-import { getSalesForPeriod } from '@/data/shopify-orders';
+import { getSalesForPeriod, type PeriodReturn } from '@/data/shopify-orders';
 import type { DataCaveats } from '@/data/dashboard-source';
 import { BUSINESS_CONFIG } from '@/lib/config/business';
 import { aggregateProductProfit, type ProductProfit } from '@/core/metrics/profitability';
@@ -30,6 +30,10 @@ export type SalesPageData = {
   readonly caveats: DataCaveats;
   /** True when an order carried more line items than one page returned. */
   readonly lineItemsTruncated: boolean;
+  /** The individual returns that landed in this period. */
+  readonly returns: readonly PeriodReturn[];
+  /** False when the refund sweep stopped before every page was read. */
+  readonly returnsComplete: boolean;
   /**
    * True only when Shopify actually answered.
    *
@@ -84,6 +88,8 @@ export async function getSalesPageData(range: DateRange): Promise<SalesPageData>
           : { message: sales.message, guidance: sales.guidance },
       ),
       lineItemsTruncated: false,
+      returns: [],
+      returnsComplete: true,
       sourceAnswered: false,
     };
   }
@@ -92,7 +98,7 @@ export async function getSalesPageData(range: DateRange): Promise<SalesPageData>
 
   return {
     orders: ordered,
-    totals: aggregatePeriod(sales.orders, sales.currency),
+    totals: aggregatePeriod(sales.orders, sales.currency, sales.salesReversals),
     currency: sales.currency,
     caveats: {
       coverage: sales.coverage,
@@ -103,6 +109,8 @@ export async function getSalesPageData(range: DateRange): Promise<SalesPageData>
       marketing: null,
     },
     lineItemsTruncated: sales.lineItemsTruncated,
+    returns: sales.returns,
+    returnsComplete: sales.returnsComplete,
     sourceAnswered: true,
   };
 }
@@ -114,7 +122,7 @@ export async function getProductsPageData(range: DateRange): Promise<ProductsPag
   if (!sales.ok) {
     return {
       profitability: [],
-      boxes: { boxes: 0, unresolvedLines: 0, titleResolvedLines: 0, unmappedProducts: [], complete: true },
+      boxes: { boxes: 0, unmappedLines: 0, unmappedVariants: [], complete: true },
       mapping: [],
       currency,
       caveats: emptyCaveats(
@@ -128,7 +136,7 @@ export async function getProductsPageData(range: DateRange): Promise<ProductsPag
     };
   }
 
-  const mapping = boxMappingConfig();
+  const mapping = await boxMappingConfig();
 
   return {
     profitability: aggregateProductProfit(sales.orders, mapping, costRatesForRange(range)),

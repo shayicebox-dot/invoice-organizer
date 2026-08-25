@@ -60,6 +60,42 @@ export const ORDERS_SUMMARY_QUERY = `
   }
 `;
 
+/**
+ * Refunds, for reconciling to Shopify's "sales reversals".
+ *
+ * Queried over orders **updated** in a window rather than orders placed in it,
+ * because a return is very often processed against an order placed weeks
+ * earlier. `refundLineItems.subtotalSet` is the product value returned,
+ * excluding tax and shipping — which is exactly what Shopify Analytics counts
+ * as a sales reversal, and is not the same as the order's `totalRefundedSet`.
+ */
+export const ORDER_REFUNDS_QUERY = `
+  query IceboxOrderRefunds($first: Int!, $after: String, $query: String!, $refunds: Int!, $refundLines: Int!) {
+    orders(first: $first, after: $after, query: $query, sortKey: UPDATED_AT) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        id
+        name
+        test
+        refunds(first: $refunds) {
+          id
+          createdAt
+          totalRefundedSet { shopMoney { amount currencyCode } }
+          refundLineItems(first: $refundLines) {
+            pageInfo { hasNextPage }
+            nodes {
+              quantity
+              subtotalSet { shopMoney { amount currencyCode } }
+              totalTaxSet { shopMoney { amount currencyCode } }
+              lineItem { id variant { id } }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 /** Orders with their line items — for the Sales and Products screens. */
 export const ORDERS_DETAILED_QUERY = `
   query IceboxOrdersDetailed($first: Int!, $after: String, $query: String!, $lineItems: Int!) {

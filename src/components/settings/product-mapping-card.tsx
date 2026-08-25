@@ -1,27 +1,44 @@
-import { Boxes } from 'lucide-react';
+'use client';
+
+import { useState, useTransition } from 'react';
+import { Boxes, Check, AlertCircle, Loader2 } from 'lucide-react';
 import type { ProductMappingRow } from '@/core/metrics/boxes';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { formatCount, formatDateRange } from '@/lib/utils/format';
-import type { DateRange } from '@/core/period';
+import { saveVariantBoxCount } from '@/app/(app)/settings/mapping-actions';
+import { BOX_COUNT_PRESETS, MAX_BOXES_PER_UNIT } from '@/lib/config/products';
+import { cn } from '@/lib/utils/cn';
 
 type ProductMappingCardProps = {
   readonly rows: readonly ProductMappingRow[];
-  readonly range: DateRange;
-  /** True when every row came from a configured ID rather than a title. */
-  readonly allMapped: boolean;
+  readonly rangeLabel: string;
+  /** False when the database is not connected, so edits cannot be saved. */
+  readonly writable: boolean;
+  readonly unavailableReason: string | null;
 };
 
 /**
- * What each pack is worth in physical boxes, and where that number came from.
+ * Where the owner says how many physical boxes each thing they sell contains.
  *
- * Every cost in ICEBOX OS is per physical box, so this table is the foundation
- * the profit figures stand on. It exists to be checked: it lists the real
- * variant ID of everything sold, so a count inferred from a product title can
- * be replaced with one pinned to an ID that cannot drift when a product is
+ * Every cost in ICEBOX OS is per physical box, so this screen is the foundation
+ * the profit figures stand on. It is built from real orders, so the list is
+ * exactly what the business actually sells, and each decision is saved against
+ * the Shopify variant ID — the one identifier that survives a product being
  * renamed.
+ *
+ * A product with no decision recorded is counted as zero boxes and shown first:
+ * that keeps a shoe from ever being costed as packaging, but it also means a
+ * real box pack left unset silently costs nothing, which is why unset rows are
+ * flagged rather than quietly defaulted.
  */
-export function ProductMappingCard({ rows, range, allMapped }: ProductMappingCardProps) {
+export function ProductMappingCard({
+  rows,
+  rangeLabel,
+  writable,
+  unavailableReason,
+}: ProductMappingCardProps) {
+  const unmapped = rows.filter((row) => row.source === 'unmapped').length;
+
   return (
     <Card>
       <CardHeader>
@@ -32,96 +49,166 @@ export function ProductMappingCard({ rows, range, allMapped }: ProductMappingCar
           <div>
             <CardTitle>Product mapping</CardTitle>
             <CardDescription>
-              How many physical boxes each pack contains. Everything sold in{' '}
-              {formatDateRange(range)}, with the variant ID to pin it to.
+              How many physical boxes each product contains. Everything sold in {rangeLabel}. A
+              product that is not packaging — a shoe, say — is 0 boxes.
             </CardDescription>
           </div>
         </div>
-        <Badge tone={allMapped ? 'positive' : 'neutral'}>
-          {allMapped ? 'All mapped' : 'Needs confirming'}
+        <Badge tone={unmapped === 0 ? 'positive' : 'negative'}>
+          {unmapped === 0 ? 'All set' : `${unmapped} to set`}
         </Badge>
       </CardHeader>
 
       <CardContent>
+        {unavailableReason === null ? null : (
+          <p className="mb-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 p-3 text-xs leading-relaxed text-foreground-muted">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+            <span>{unavailableReason}</span>
+          </p>
+        )}
+
         {rows.length === 0 ? (
           <p className="text-sm text-foreground-muted">
             Nothing sold in this window, so there is nothing to map yet.
           </p>
         ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[42rem] border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-border-subtle text-left">
-                    <th scope="col" className="py-2 pr-4 text-xs font-medium text-foreground-muted">
-                      Pack
-                    </th>
-                    <th scope="col" className="py-2 pl-4 text-right text-xs font-medium text-foreground-muted">
-                      Boxes per unit
-                    </th>
-                    <th scope="col" className="py-2 pl-4 text-right text-xs font-medium text-foreground-muted">
-                      Units sold
-                    </th>
-                    <th scope="col" className="py-2 pl-4 text-xs font-medium text-foreground-muted">
-                      Variant ID
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.key} className="border-b border-border-subtle last:border-b-0">
-                      <td className="max-w-[16rem] py-2.5 pr-4">
-                        <span dir="auto" className="block truncate [unicode-bidi:isolate] text-foreground">
-                          {row.productTitle}
-                        </span>
-                        {row.variantTitle === null ? null : (
-                          <span dir="auto" className="block truncate text-[11px] text-foreground-subtle">
-                            {row.variantTitle}
-                          </span>
-                        )}
-                      </td>
-                      <td className="numeric py-2.5 pl-4 text-right">
-                        {row.boxesPerUnit === null ? (
-                          <span className="text-negative">Unknown</span>
-                        ) : (
-                          <span className="text-foreground">{formatCount(row.boxesPerUnit)}</span>
-                        )}
-                        <span className="ml-2 text-[10px] text-foreground-subtle">
-                          {row.source === 'variant-id'
-                            ? 'by ID'
-                            : row.source === 'product-id'
-                              ? 'by product'
-                              : row.source === 'title'
-                                ? 'from title'
-                                : 'unmapped'}
-                        </span>
-                      </td>
-                      <td className="numeric py-2.5 pl-4 text-right text-foreground-muted">
-                        {formatCount(row.unitsSold)}
-                      </td>
-                      <td className="py-2.5 pl-4">
-                        <code className="numeric break-all text-[11px] text-foreground-subtle">
-                          {row.variantId ?? '—'}
-                        </code>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <p className="mt-4 text-xs leading-relaxed text-foreground-muted">
-              A count marked <span className="font-medium">from title</span> was read out of the
-              product name. It is a reasonable guess, not a fact — renaming that product in Shopify
-              would silently change its cost. To pin it down, copy the variant ID above into{' '}
-              <code className="text-foreground-subtle">byVariantId</code> in{' '}
-              <code className="text-foreground-subtle">src/lib/config/products.ts</code>. A count
-              marked <span className="font-medium">unmapped</span> contributes no cost at all, so
-              profit is overstated until it is added.
-            </p>
-          </>
+          <ul className="flex flex-col divide-y divide-border-subtle">
+            {rows.map((row) => (
+              <MappingRow key={row.key} row={row} writable={writable} />
+            ))}
+          </ul>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function MappingRow({ row, writable }: { readonly row: ProductMappingRow; readonly writable: boolean }) {
+  const [value, setValue] = useState<number | null>(row.boxesPerUnit);
+  const [custom, setCustom] = useState(
+    row.boxesPerUnit !== null && !BOX_COUNT_PRESETS.includes(row.boxesPerUnit),
+  );
+  const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const canEdit = writable && row.variantId !== null;
+
+  function save(boxes: number): void {
+    setValue(boxes);
+    setFeedback(null);
+
+    if (row.variantId === null) return;
+
+    startTransition(async () => {
+      const result = await saveVariantBoxCount({
+        variantId: row.variantId as string,
+        boxesPerUnit: boxes,
+        productTitle: row.productTitle,
+        variantTitle: row.variantTitle,
+      });
+      setFeedback({ ok: result.status === 'saved', message: result.message });
+    });
+  }
+
+  return (
+    <li className="flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="min-w-0 flex-1">
+        <p dir="auto" className="truncate text-sm text-foreground [unicode-bidi:isolate]">
+          {row.productTitle}
+        </p>
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-foreground-subtle">
+          {row.variantTitle === null ? null : <span dir="auto">{row.variantTitle}</span>}
+          <span className="numeric">{row.unitsSold} sold</span>
+          {row.source === 'unmapped' ? (
+            <span className="rounded bg-negative/10 px-1.5 py-0.5 text-negative">Needs setting</span>
+          ) : (
+            <span className="rounded bg-surface-muted px-1.5 py-0.5">
+              {row.boxesSold} boxes in period
+            </span>
+          )}
+        </p>
+        <code className="numeric mt-0.5 block break-all text-[10px] text-foreground-subtle">
+          {row.variantId ?? 'No variant ID — this line cannot be mapped'}
+        </code>
+      </div>
+
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        {BOX_COUNT_PRESETS.map((preset) => (
+          <button
+            key={preset}
+            type="button"
+            disabled={!canEdit || isPending}
+            onClick={() => {
+              setCustom(false);
+              save(preset);
+            }}
+            aria-pressed={!custom && value === preset}
+            className={cn(
+              'numeric rounded-md border px-2.5 py-1 text-xs transition-colors',
+              'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+              'disabled:cursor-not-allowed disabled:opacity-50',
+              !custom && value === preset
+                ? 'border-accent bg-accent text-accent-foreground'
+                : 'border-border-subtle text-foreground-muted hover:bg-surface-muted hover:text-foreground',
+            )}
+          >
+            {preset}
+          </button>
+        ))}
+
+        <button
+          type="button"
+          disabled={!canEdit || isPending}
+          onClick={() => setCustom(true)}
+          aria-pressed={custom}
+          className={cn(
+            'rounded-md border px-2.5 py-1 text-xs transition-colors',
+            'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+            'disabled:cursor-not-allowed disabled:opacity-50',
+            custom
+              ? 'border-accent bg-accent-muted text-accent'
+              : 'border-border-subtle text-foreground-muted hover:bg-surface-muted hover:text-foreground',
+          )}
+        >
+          Custom
+        </button>
+
+        {custom ? (
+          <input
+            type="number"
+            min={0}
+            max={MAX_BOXES_PER_UNIT}
+            step={1}
+            defaultValue={value ?? 0}
+            disabled={!canEdit || isPending}
+            aria-label={`Boxes per unit for ${row.productTitle}`}
+            onBlur={(event) => {
+              const next = Number(event.target.value);
+              if (Number.isInteger(next) && next >= 0 && next <= MAX_BOXES_PER_UNIT) save(next);
+            }}
+            className="numeric w-20 rounded-md border border-border-subtle bg-surface px-2 py-1 text-xs text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          />
+        ) : null}
+
+        <span className="flex min-w-[7rem] items-center gap-1 text-[11px]">
+          {isPending ? (
+            <>
+              <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+              <span className="text-foreground-subtle">Saving…</span>
+            </>
+          ) : feedback === null ? null : feedback.ok ? (
+            <>
+              <Check className="size-3 text-positive" aria-hidden="true" />
+              <span className="text-foreground-subtle">{feedback.message}</span>
+            </>
+          ) : (
+            <>
+              <AlertCircle className="size-3 text-negative" aria-hidden="true" />
+              <span className="text-negative">{feedback.message}</span>
+            </>
+          )}
+        </span>
+      </div>
+    </li>
   );
 }

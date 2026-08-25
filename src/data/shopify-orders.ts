@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { cache } from 'react';
-import { addMoney, type CurrencyCode } from '@/core/money';
+import { addMoney, sumMoney, type CurrencyCode, type Money } from '@/core/money';
 import {
   addDays,
   clampRangeToAvailable,
@@ -9,12 +9,14 @@ import {
   type ClampedRange,
   type DateRange,
 } from '@/core/period';
-import { orderNetRevenue, type SalesLineItem, type SalesOrder } from '@/core/metrics/sales';
+import { orderSalesBeforeReturns, type SalesLineItem, type SalesOrder } from '@/core/metrics/sales';
 import {
   DEFAULT_ORDER_HISTORY_DAYS,
   fetchAllOrders,
+  fetchRefundsInWindow,
   readOrderHistoryLimit,
   type ShopifyOrder,
+  type ShopifyRefund,
 } from '@/integrations/shopify/orders';
 import { ShopifyError, FAILURE_GUIDANCE } from '@/integrations/shopify/errors';
 import { ShopifyConfigError } from '@/integrations/shopify/config';
@@ -31,6 +33,20 @@ import { todayInBusinessTimeZone } from '@/lib/utils/today';
  * by whichever screen displays the result.
  */
 
+/** One return that landed inside the reporting period. */
+export type PeriodReturn = {
+  readonly id: string;
+  readonly orderNumber: string;
+  /** The day the refund happened, in the business timezone. */
+  readonly businessDate: string;
+  /** Product value returned, excluding tax and shipping. */
+  readonly productSubtotal: Money;
+  /** Cash actually returned, including shipping and tax. */
+  readonly totalRefunded: Money;
+  /** True when the order it belongs to was placed before this period. */
+  readonly againstEarlierOrder: boolean;
+};
+
 export type SalesFetch =
   | {
       readonly ok: true;
@@ -46,6 +62,15 @@ export type SalesFetch =
       readonly taxesIncluded: boolean;
       /** True when an order had more line items than one page returned. */
       readonly lineItemsTruncated: boolean;
+      /**
+       * Goods returned during this period, product value only, dated by the
+       * refund rather than by the order it was against.
+       */
+      readonly salesReversals: Money;
+      /** The individual returns behind that total, for the reconciliation view. */
+      readonly returns: readonly PeriodReturn[];
+      /** False when the refund sweep stopped before every page was read. */
+      readonly returnsComplete: boolean;
     }
   | {
       readonly ok: false;
@@ -103,6 +128,24 @@ export const getSalesForPeriod = cache(
             order.businessDate >= coverage.range.start && order.businessDate <= coverage.range.end,
         );
 
+      // Returns are read separately, over orders *updated* in the window rather
+      // than placed in it. A return processed this month against last month's
+      // order belongs to this month's reversals, and searching by order date
+      // would never see it.
+      const refundSweep = await fetchRefundsInWindow({
+        updatedAtMin: `${addDays(coverage.range.start, -1)}T00:00:00Z`,
+        updatedAtMax: `${addDays(coverage.range.end, 1)}T23:59:59Z`,
+      });
+
+      const orderDateById = new Map(mapped.map((order) => [order.id, order.businessDate]));
+
+      const returns = refundSweep.refunds
+        .map((refund) => toPeriodReturn(refund, timeZone, orderDateById))
+        .filter(
+          (entry) =>
+            entry.businessDate >= coverage.range.start && entry.businessDate <= coverage.range.end,
+        );
+
       return {
         ok: true,
         orders: mapped,
@@ -112,6 +155,9 @@ export const getSalesForPeriod = cache(
         complete,
         taxesIncluded: orders.some((order) => order.taxesIncluded),
         lineItemsTruncated: orders.some((order) => order.hasMoreLineItems),
+        salesReversals: sumMoney(currency, returns.map((entry) => entry.productSubtotal)),
+        returns,
+        returnsComplete: refundSweep.complete,
       };
     } catch (error) {
       const coverage = { range, truncated: false, requestedStart: range.start };
@@ -160,6 +206,23 @@ export const getSalesForPeriod = cache(
  * That fact travels with the result so screens can say so; separating VAT is a
  * deliberate later step, not something to approximate here.
  */
+function toPeriodReturn(
+  refund: ShopifyRefund,
+  timeZone: string,
+  orderDateById: ReadonlyMap<string, string>,
+): PeriodReturn {
+  return {
+    id: refund.id,
+    orderNumber: refund.orderNumber,
+    businessDate: instantToDateInTimeZone(refund.createdAt, timeZone),
+    productSubtotal: refund.productSubtotal,
+    totalRefunded: refund.totalRefunded,
+    // Worth surfacing: these are exactly the returns an order-dated figure
+    // misses, and they are the usual reason a total disagrees with Shopify.
+    againstEarlierOrder: !orderDateById.has(refund.orderId),
+  };
+}
+
 function toSalesOrder(order: ShopifyOrder, timeZone: string): SalesOrder {
   const grossSales = addMoney(order.subtotal, order.totalDiscounts);
 
@@ -184,7 +247,7 @@ function toSalesOrder(order: ShopifyOrder, timeZone: string): SalesOrder {
     grossSales,
     discounts: order.totalDiscounts,
     refunds: order.totalRefunded,
-    netRevenue: orderNetRevenue(grossSales, order.totalDiscounts, order.totalRefunded),
+    netRevenue: orderSalesBeforeReturns(grossSales, order.totalDiscounts),
     isCancelled: order.cancelledAt !== null,
     financialStatus: order.financialStatus,
     lineItems,

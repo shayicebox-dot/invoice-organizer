@@ -14,47 +14,26 @@ import { formatCount } from '@/lib/utils/format';
  * checkable.
  */
 export function MappingNotice({ boxes }: { readonly boxes: BoxTally }) {
-  const notices: { readonly key: string; readonly tone: 'warning' | 'negative'; readonly text: string }[] = [];
+  if (boxes.complete) return null;
 
-  if (boxes.unresolvedLines > 0) {
-    const named = boxes.unmappedProducts
-      .slice(0, 3)
-      .map((product) =>
-        product.variantTitle === null
-          ? product.productTitle
-          : `${product.productTitle} (${product.variantTitle})`,
-      )
-      .join(', ');
-
-    notices.push({
-      key: 'unresolved',
-      tone: 'negative',
-      text: `${formatCount(boxes.unresolvedLines)} order ${boxes.unresolvedLines === 1 ? 'line' : 'lines'} could not be matched to a physical box count — ${named}${boxes.unmappedProducts.length > 3 ? ' and others' : ''}. Their product and shipping cost is missing from every figure below, so profit is overstated. Map them in Settings → Product mapping.`,
-    });
-  }
-
-  if (boxes.titleResolvedLines > 0) {
-    notices.push({
-      key: 'title',
-      tone: 'warning',
-      text: `${formatCount(boxes.titleResolvedLines)} order ${boxes.titleResolvedLines === 1 ? 'line was' : 'lines were'} costed using a box count read from the product title, because no variant ID is configured for them. Confirm these in Settings → Product mapping: a renamed product would silently change the cost.`,
-    });
-  }
-
-  if (notices.length === 0) return null;
+  const named = boxes.unmappedVariants
+    .slice(0, 3)
+    .map((variant) =>
+      variant.variantTitle === null
+        ? variant.productTitle
+        : `${variant.productTitle} (${variant.variantTitle})`,
+    )
+    .join(', ');
 
   return (
-    <div className="flex flex-col gap-2">
-      {notices.map((notice) => (
-        <Notice
-          key={notice.key}
-          tone={notice.tone}
-          icon={notice.tone === 'negative' ? AlertCircle : Info}
-        >
-          {notice.text}
-        </Notice>
-      ))}
-    </div>
+    <Notice tone="negative" icon={AlertCircle}>
+      {formatCount(boxes.unmappedVariants.length)}{' '}
+      {boxes.unmappedVariants.length === 1 ? 'product has' : 'products have'} no box count recorded
+      — {named}
+      {boxes.unmappedVariants.length > 3 ? ' and others' : ''}. They are counted as zero boxes, so
+      no product or shipping cost is charged for them and profit is overstated by that amount. Set
+      each one in Settings → Product mapping; a shoe is simply 0 boxes.
+    </Notice>
   );
 }
 
