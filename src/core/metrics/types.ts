@@ -1,4 +1,5 @@
 import type { CurrencyCode, Money } from '@/core/money';
+import type { AdPlatformId } from '@/core/metrics/marketing';
 
 /** Identifier of an upstream input a metric depends on. Used for traceability. */
 export type InputId =
@@ -22,6 +23,14 @@ export type InputId =
  */
 export type PeriodInputs = {
   readonly currency: CurrencyCode;
+  /**
+   * Ad platforms the business runs, from `BUSINESS_CONFIG.adPlatforms`.
+   *
+   * Total marketing spend is summed over exactly these. A platform outside the
+   * list is not "missing data" — the business does not spend there, so it
+   * contributes nothing and does not hold the total hostage.
+   */
+  readonly activeAdPlatforms: readonly AdPlatformId[];
   readonly grossRevenue: Money | null;
   readonly discounts: Money | null;
   readonly refunds: Money | null;

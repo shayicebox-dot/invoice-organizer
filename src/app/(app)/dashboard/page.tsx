@@ -15,10 +15,14 @@ import type { MetricId } from '@/core/metrics/types';
 import { parsePeriodPreset, resolvePeriod } from '@/core/period';
 import { connectedSourceCount, getDashboardData } from '@/data/dashboard-source';
 import { DataNotices } from '@/components/sales/data-notices';
+import { MarketingNotices } from '@/components/marketing/marketing-notices';
 import { todayInBusinessTimeZone } from '@/lib/utils/today';
 import { formatDateRange } from '@/lib/utils/format';
 
 export const metadata: Metadata = { title: 'Dashboard' };
+
+/** Every load reads live from Shopify and Meta, so nothing is prerendered. */
+export const dynamic = 'force-dynamic';
 
 /** The KPI row, in reading order. */
 const KPI_ORDER: readonly MetricId[] = [
@@ -61,13 +65,16 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
           <>
             <PeriodSelector active={preset} basePath="/dashboard" />
             <Badge tone={connected > 0 ? 'positive' : 'neutral'}>
-              {connected > 0 ? `${connected} sources live` : 'No data sources'}
+              {connected === 0
+                ? 'No data sources'
+                : `${connected} ${connected === 1 ? 'source' : 'sources'} live`}
             </Badge>
           </>
         }
       />
 
       <DataNotices caveats={data.caveats} />
+      <MarketingNotices caveats={data.caveats.marketing} singleDay={range.start === range.end} />
 
       <section aria-label="Key figures">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
@@ -79,7 +86,11 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
       <div className="grid gap-4 lg:grid-cols-2">
         <RevenueOverview metrics={metrics} salesConnected={salesConnected} />
-        <MarketingPerformance metrics={metrics} sources={data.sources} />
+        <MarketingPerformance
+          metrics={metrics}
+          sources={data.sources}
+          activePlatforms={data.inputs.activeAdPlatforms}
+        />
       </div>
 
       <Card>

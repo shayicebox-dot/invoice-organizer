@@ -25,8 +25,8 @@ MVP dashboard over an empty data source. What exists:
 - Money primitives and pure metric calculations in `src/core`
 - Business and cost configuration in `src/lib/config/business.ts`
 - Shopify is the live source for orders, revenue, discounts and refunds
-- Sales and Products read real Shopify orders; Marketing and Expenses are
-  placeholders
+- Sales and Products read real Shopify orders; Marketing reads real Meta Ads
+  performance; Expenses is a placeholder
 - Settings: Shopify and Meta Ads connection status, each with a server-side
   "Test connection" check
 - Single-owner login: password in `ICEBOX_ADMIN_PASSWORD`, signed HTTP-only
@@ -34,17 +34,15 @@ MVP dashboard over an empty data source. What exists:
 - Shopify Admin GraphQL integration in `src/integrations/shopify` — client
   credentials auth, connection test and order reads
 - Meta Ads Marketing API integration in `src/integrations/meta` — system user
-  token auth, connection test and Insights reads, prepared but not yet feeding
-  any screen
+  token auth, connection test and Insights reads
+- Meta is the live source for ad spend, and feeds Marketing spend, ROAS and CPA
+  on the dashboard plus the whole Marketing screen
 
 What does **not** exist yet, and must not be invented ad hoc:
 
 - The financial database schema (no Supabase tables, no queries)
 - VAT, tax, inventory and cash-flow modelling
 - Google Ads, invoicing and payment integrations
-- Meta spend on the dashboard (Marketing spend, CPA, ROAS) and the Marketing
-  page's campaign table — the integration is ready, the wiring is deliberately
-  a separate step
 - Storage of imported Shopify orders (each page load reads Shopify live)
 - COGS, and every metric that depends on it
 - Any real or sample financial data
@@ -127,11 +125,12 @@ src/
 ├── core/                       business logic — pure, no I/O
 │   ├── money.ts                integer minor units, decimal parsing, no floats
 │   ├── period.ts               reporting ranges, timezone bucketing, clamping
-│   └── metrics/                dashboard + sales calculations, types
+│   └── metrics/                dashboard, sales + advertising calculations
 ├── data/
 │   ├── shopify-orders.ts       Shopify payloads → SalesOrder (the mapping)
 │   ├── dashboard-source.ts     dashboard totals, daily series, recent orders
-│   └── sales-source.ts         order-level and product-level reads
+│   ├── sales-source.ts         order-level and product-level reads
+│   └── marketing-source.ts     Meta spend and campaign performance
 ├── integrations/               external systems — server only
 │   ├── shopify/                Admin GraphQL client, connection test, orders
 │   └── meta/                   Marketing API client, connection test, insights
@@ -203,6 +202,14 @@ screen says so rather than presenting a VAT-inclusive total as revenue. The same
 applies to a period trimmed to available history, and to totals read from an
 incomplete page sweep.
 
+**"Not a source" is not "missing".**
+Total marketing spend is summed over `BUSINESS_CONFIG.adPlatforms` — the
+platforms the business actually advertises on. A platform ICEBOX does not use
+contributes nothing rather than blocking the total forever; a platform it does
+use but has not connected makes the total unavailable. A source that failed to
+answer is likewise distinct from one that answered with zero: see
+`sourceAnswered`.
+
 **Missing is not zero.**
 A metric with no source reports "Not connected" (KPI tiles) or a dash (breakdown
 rows), never `0`. A metric whose inputs exist but whose value is undefined — an
@@ -211,6 +218,20 @@ average over no orders — shows a dash instead, distinguished by
 is a measured zero and is charted as one. `PeriodInputs` uses `null` for "no source yet", and any metric
 depending on a null input is unavailable rather than computed. A chart with no
 data draws an empty frame, not a line along the floor.
+
+**Two sources are never blended across mismatched periods or currencies.**
+ROAS and CPA divide Meta spend by Shopify figures. Both sides must cover the
+same range — the dashboard reads Meta over the range Shopify was actually able
+to serve, not the range that was requested — and both must be in the reporting
+currency. When either condition fails the figure is withheld with a stated
+reason rather than computed. Ad spend also carries the platform's day
+boundaries: Meta buckets a day in the ad account's timezone, Shopify in the
+business timezone, and the gap is measured and shown, never silently corrected.
+
+**A platform's attribution is its own claim, not the store's record.**
+Meta's purchases and purchase value come from Meta's attribution window and
+will not match Shopify's orders. They are shown as Meta's figures, labelled as
+such, beside the store's — never merged into one number.
 
 **Israeli context is a first-class concern.**
 VAT (including rate changes over time), VAT reporting periods, zero-rated
