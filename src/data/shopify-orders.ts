@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { cache } from 'react';
-import { addMoney, sumMoney, type CurrencyCode, type Money } from '@/core/money';
+import { sumMoney, type CurrencyCode, type Money } from '@/core/money';
 import {
   addDays,
   clampRangeToAvailable,
@@ -87,7 +87,7 @@ export type SalesFetch =
  * Shopify read per request rather than each triggering their own.
  */
 export const getSalesForPeriod = cache(
-  async (range: DateRange, withLineItems: boolean): Promise<SalesFetch> => {
+  async (range: DateRange): Promise<SalesFetch> => {
     const currency = BUSINESS_CONFIG.reportingCurrency;
     const timeZone = BUSINESS_CONFIG.timeZone;
 
@@ -117,7 +117,6 @@ export const getSalesForPeriod = cache(
       const { orders, complete } = await fetchAllOrders({
         processedAtMin: `${addDays(coverage.range.start, -1)}T00:00:00Z`,
         processedAtMax: `${addDays(coverage.range.end, 1)}T23:59:59Z`,
-        withLineItems,
       });
 
       const mapped = orders
@@ -134,7 +133,6 @@ export const getSalesForPeriod = cache(
       // would never see it.
       const refundSweep = await fetchRefundsInWindow({
         updatedAtMin: `${addDays(coverage.range.start, -1)}T00:00:00Z`,
-        updatedAtMax: `${addDays(coverage.range.end, 1)}T23:59:59Z`,
       });
 
       const orderDateById = new Map(mapped.map((order) => [order.id, order.businessDate]));
@@ -224,7 +222,7 @@ function toPeriodReturn(
 }
 
 function toSalesOrder(order: ShopifyOrder, timeZone: string): SalesOrder {
-  const grossSales = addMoney(order.subtotal, order.totalDiscounts);
+  const grossSales = order.grossSales;
 
   const lineItems: readonly SalesLineItem[] = order.lineItems.map((line) => ({
     id: line.id,

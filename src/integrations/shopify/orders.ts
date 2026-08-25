@@ -2,11 +2,7 @@ import 'server-only';
 
 import { shopifyGraphQL, type ThrottleStatus } from '@/integrations/shopify/client';
 import { getShopifyConfig, HISTORICAL_ORDERS_SCOPE } from '@/integrations/shopify/config';
-import {
-  ORDER_REFUNDS_QUERY,
-  ORDERS_DETAILED_QUERY,
-  ORDERS_SUMMARY_QUERY,
-} from '@/integrations/shopify/queries';
+import { ORDER_REFUNDS_QUERY, ORDERS_DETAILED_QUERY } from '@/integrations/shopify/queries';
 import { ShopifyResponseError } from '@/integrations/shopify/errors';
 import { getAccessToken, getTokenSnapshot } from '@/integrations/shopify/token';
 import {
@@ -18,7 +14,14 @@ import {
   requireRecord,
   requireString,
 } from '@/integrations/shopify/json';
-import { addMoney, moneyFromDecimalString, parseCurrencyCode, zeroMoney, type Money } from '@/core/money';
+import {
+  addMoney,
+  moneyFromDecimalString,
+  parseCurrencyCode,
+  sumMoney,
+  zeroMoney,
+  type Money,
+} from '@/core/money';
 import { BUSINESS_CONFIG } from '@/lib/config/business';
 
 /**
@@ -45,8 +48,12 @@ export type ShopifyLineItem = {
   readonly quantity: number;
   /** Unit price before any discount. */
   readonly unitPrice: Money;
-  /** Line total after line-level and allocated order discounts. */
+  /** Price × quantity when the order was created, before discounts. */
+  readonly originalTotal: Money;
+  /** Line total after every discount allocated to it. */
   readonly discountedTotal: Money;
+  /** Discounts allocated to this line, including order-level and code discounts. */
+  readonly discountAllocated: Money;
   readonly productId: string | null;
   /** The variant sold — how a pack size is identified. May be null if deleted. */
   readonly variantId: string | null;
@@ -68,8 +75,12 @@ export type ShopifyOrder = {
    */
   readonly taxesIncluded: boolean;
   readonly financialStatus: string | null;
-  /** Line items after discounts, before refunds. Includes tax if `taxesIncluded`. */
-  readonly subtotal: Money;
+  /**
+   * Gross sales: the line items' prices when the order was created, before any
+   * discount and unaffected by later returns.
+   */
+  readonly grossSales: Money;
+  /** Every discount allocated to those lines, order-level and code included. */
   readonly totalDiscounts: Money;
   readonly totalRefunded: Money;
   readonly customerId: string | null;
@@ -96,7 +107,7 @@ export type FetchOrdersParams = {
   /** Include test orders. Off by default — they are not real money. */
   readonly includeTestOrders?: boolean;
   /** Fetch line items. Off by default: they cost query budget. */
-  readonly withLineItems?: boolean;
+
 };
 
 /** Build the Shopify search query string for a period. */
@@ -141,16 +152,14 @@ export async function readOrderHistoryLimit(): Promise<{
 /** Fetch one page of orders. Pagination is the caller's to drive. */
 export async function fetchOrdersPage(params: FetchOrdersParams): Promise<OrdersPage> {
   const config = getShopifyConfig();
-  const withLineItems = params.withLineItems === true;
-
   const response = await shopifyGraphQL({
-    query: withLineItems ? ORDERS_DETAILED_QUERY : ORDERS_SUMMARY_QUERY,
+    query: ORDERS_DETAILED_QUERY,
     config,
     variables: {
       first: params.pageSize ?? DEFAULT_PAGE_SIZE,
       after: params.after ?? null,
       query: buildOrdersSearchQuery(params),
-      ...(withLineItems ? { lineItems: LINE_ITEMS_PER_ORDER } : {}),
+      lineItems: LINE_ITEMS_PER_ORDER,
     },
   });
 
@@ -223,7 +232,6 @@ export type ShopifyRefund = {
 export type FetchRefundsParams = {
   /** Orders updated at or after this instant, ISO 8601. */
   readonly updatedAtMin: string;
-  readonly updatedAtMax: string;
   readonly after?: string;
 };
 
@@ -244,6 +252,10 @@ export async function fetchRefundsInWindow(
 ): Promise<{ readonly refunds: readonly ShopifyRefund[]; readonly complete: boolean }> {
   const config = getShopifyConfig();
   const collected: ShopifyRefund[] = [];
+  // Sorted by `updated_at` while orders are still being updated, so a cursor
+  // can hand back the same order on two pages. Counting a refund twice would
+  // understate revenue by its value, silently.
+  const seenRefundIds = new Set<string>();
   let cursor: string | null = params.after ?? null;
 
   for (let page = 0; page < maxPages; page += 1) {
@@ -253,7 +265,11 @@ export async function fetchRefundsInWindow(
       variables: {
         first: DEFAULT_PAGE_SIZE,
         ...(cursor === null ? {} : { after: cursor }),
-        query: `updated_at:>='${params.updatedAtMin}' AND updated_at:<='${params.updatedAtMax}' AND test:false`,
+        // No upper bound on purpose. An order refunded inside the period and
+        // then touched again afterwards — a fulfilment, a note — has an
+        // `updated_at` beyond the period, and capping the search here would
+        // drop its refund and overstate revenue.
+        query: `updated_at:>='${params.updatedAtMin}' AND test:false`,
         refunds: REFUNDS_PER_ORDER,
         refundLines: REFUND_LINES_PER_REFUND,
       },
@@ -264,7 +280,11 @@ export async function fetchRefundsInWindow(
     const pageInfo = requireRecord(readField(orders, 'pageInfo'), 'data.orders.pageInfo');
 
     for (const [index, node] of nodes.entries()) {
-      collected.push(...parseOrderRefunds(node, `data.orders.nodes[${index}]`));
+      for (const refund of parseOrderRefunds(node, `data.orders.nodes[${index}]`)) {
+        if (seenRefundIds.has(refund.id)) continue;
+        seenRefundIds.add(refund.id);
+        collected.push(refund);
+      }
     }
 
     const hasNextPage = readField(pageInfo, 'hasNextPage') === true;
@@ -343,6 +363,12 @@ function parseOrder(node: unknown, path: string): ShopifyOrder {
           `${path}.lineItems.pageInfo.hasNextPage`,
         );
 
+  const parsedLines = lineItemNodes.map((item, index) =>
+    parseLineItem(item, `${path}.lineItems.nodes[${index}]`),
+  );
+
+  const currency = BUSINESS_CONFIG.reportingCurrency;
+
   return {
     id: requireString(readField(order, 'id'), `${path}.id`),
     orderNumber: requireString(readField(order, 'name'), `${path}.name`),
@@ -354,11 +380,10 @@ function parseOrder(node: unknown, path: string): ShopifyOrder {
       readField(order, 'displayFinancialStatus'),
       `${path}.displayFinancialStatus`,
     ),
-    subtotal: parseMoneyBag(readField(order, 'subtotalPriceSet'), `${path}.subtotalPriceSet`),
-    totalDiscounts: parseMoneyBag(
-      readField(order, 'totalDiscountsSet'),
-      `${path}.totalDiscountsSet`,
-    ),
+    // Built up from the line items rather than read off the order: the order's
+    // own subtotal is net of returns and would deduct them a second time.
+    grossSales: sumMoney(currency, parsedLines.map((line) => line.originalTotal)),
+    totalDiscounts: sumMoney(currency, parsedLines.map((line) => line.discountAllocated)),
     totalRefunded: parseMoneyBag(readField(order, 'totalRefundedSet'), `${path}.totalRefundedSet`),
     customerId:
       customerRecord === null
@@ -368,11 +393,35 @@ function parseOrder(node: unknown, path: string): ShopifyOrder {
       customerRecord === null
         ? null
         : optionalString(readField(customerRecord, 'displayName'), `${path}.customer.displayName`),
-    lineItems: lineItemNodes.map((item, index) =>
-      parseLineItem(item, `${path}.lineItems.nodes[${index}]`),
-    ),
+    lineItems: parsedLines,
     hasMoreLineItems,
   };
+}
+
+/**
+ * Every discount attached to a line, added up.
+ *
+ * `discountAllocations` is used rather than `totalDiscountSet` or the gap
+ * between original and discounted totals, because those two exclude order-level
+ * and code-based discounts — a store using a discount code would have its
+ * discounts understated and its net sales overstated.
+ */
+function parseDiscountAllocations(item: Record<string, unknown>, path: string): Money {
+  const allocations = readField(item, 'discountAllocations');
+  const currency = BUSINESS_CONFIG.reportingCurrency;
+
+  if (!Array.isArray(allocations)) return zeroMoney(currency);
+
+  return allocations.reduce<Money>((total, allocation, index) => {
+    const record = requireRecord(allocation, `${path}.discountAllocations[${index}]`);
+    return addMoney(
+      total,
+      parseMoneyBag(
+        readField(record, 'allocatedAmountSet'),
+        `${path}.discountAllocations[${index}].allocatedAmountSet`,
+      ),
+    );
+  }, zeroMoney(currency));
 }
 
 function parseLineItem(node: unknown, path: string): ShopifyLineItem {
@@ -393,6 +442,8 @@ function parseLineItem(node: unknown, path: string): ShopifyLineItem {
     title: requireString(readField(item, 'name'), `${path}.name`),
     sku: optionalString(readField(item, 'sku'), `${path}.sku`),
     quantity: requireInteger(readField(item, 'quantity'), `${path}.quantity`),
+    originalTotal: parseMoneyBag(readField(item, 'originalTotalSet'), `${path}.originalTotalSet`),
+    discountAllocated: parseDiscountAllocations(item, path),
     unitPrice: parseMoneyBag(
       readField(item, 'originalUnitPriceSet'),
       `${path}.originalUnitPriceSet`,

@@ -236,8 +236,13 @@ Everything below the VAT line in the P&L is ex VAT, and the VAT-inclusive
 figures Shopify reports are kept alongside rather than replaced.
 
 **Sales definitions match Shopify Analytics, line for line.**
-Gross sales are product prices before discounts, reconstructed as Shopify's
-`subtotalPrice + totalDiscounts` — at order level, because line items paginate.
+Gross sales are built from **line items** — `originalTotalSet`, the price when
+the order was created — never from `Order.subtotalPriceSet`. Shopify documents
+that subtotal as being after discounts *and returns*, so it shrinks when goods
+come back; reconstructing gross from it and then subtracting the period's
+returns deducts the same return twice. Discounts come from each line's
+`discountAllocations`, which unlike `totalDiscountSet` include order-level and
+code-based discounts.
 Net revenue is gross − discounts − **sales reversals**, which is Shopify's Net
 sales. Two traps decide whether the two systems agree, and both are handled in
 `src/data/shopify-orders.ts`: a return is dated by **the refund**, not by the

@@ -123,9 +123,7 @@ function emptyInputs(): PeriodInputs {
  * shorter period's revenue — a plausible-looking ROAS that is simply wrong.
  */
 export async function getDashboardData(range: DateRange): Promise<DashboardData> {
-  // Line items are read here — unlike before — because the profit engine costs
-  // physical boxes, and a box count can only be built line by line.
-  const sales = await getSalesForPeriod(range, true);
+  const sales = await getSalesForPeriod(range);
 
   if (!sales.ok) {
     const marketing = await getMetaSpend(range);
