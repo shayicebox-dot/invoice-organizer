@@ -29,7 +29,7 @@ export function RevenueOverview({ metrics, salesConnected }: RevenueOverviewProp
         </div>
         <p className="mt-4 text-[11px] leading-relaxed text-foreground-subtle">
           {salesConnected
-            ? 'VAT is not separated yet — these figures are as reported by the sales channel.'
+            ? 'These are the figures Shopify reports, VAT included. The VAT and ex-VAT lines are in the cards above.'
             : 'Shopify is not connected, so no sales have been reported. A dash means no data, not zero.'}
         </p>
       </CardContent>

@@ -27,7 +27,9 @@ MVP dashboard over an empty data source. What exists:
 - Business and cost configuration in `src/lib/config/business.ts`
 - Shopify is the live source for orders, revenue, discounts and refunds
 - Sales and Products read real Shopify orders; Marketing reads real Meta Ads
-  performance; Expenses is a placeholder
+  performance; Expenses reports the full cost breakdown
+- Profitability engine: VAT, per-box COGS and shipping, a variable rate, and
+  monthly fixed costs allocated across the selected days, down to net profit
 - Settings: Shopify and Meta Ads connection status, each with a server-side
   "Test connection" check
 - Single-owner login: password in `ICEBOX_ADMIN_PASSWORD`, signed HTTP-only
@@ -42,10 +44,11 @@ MVP dashboard over an empty data source. What exists:
 What does **not** exist yet, and must not be invented ad hoc:
 
 - The financial database schema (no Supabase tables, no queries)
-- VAT, tax, inventory and cash-flow modelling
+- Income tax and corporate tax; inventory and cash-flow modelling
+- Deductible input VAT on expenses — output VAT is separated, input VAT is not
+- Payment processing measured separately, rather than inside the 5% rate
 - Google Ads, invoicing and payment integrations
 - Storage of imported Shopify orders (each page load reads Shopify live)
-- COGS, and every metric that depends on it
 - Any real or sample financial data
 
 Shopify orders are read live on each page load and aggregated in `src/core`;
@@ -126,12 +129,13 @@ src/
 ├── core/                       business logic — pure, no I/O
 │   ├── money.ts                integer minor units, decimal parsing, no floats
 │   ├── period.ts               reporting ranges, presets, calendar arithmetic
-│   └── metrics/                dashboard, sales + advertising calculations
+│   └── metrics/                dashboard, sales, advertising, boxes, P&L
 ├── data/
 │   ├── shopify-orders.ts       Shopify payloads → SalesOrder (the mapping)
 │   ├── dashboard-source.ts     dashboard totals, daily series, recent orders
 │   ├── sales-source.ts         order-level and product-level reads
-│   └── marketing-source.ts     Meta spend and campaign performance
+│   ├── marketing-source.ts     Meta spend and campaign performance
+│   └── profitability-source.ts assembles the P&L from Shopify, Meta and config
 ├── integrations/               external systems — server only
 │   ├── shopify/                Admin GraphQL client, connection test, orders
 │   └── meta/                   Marketing API client, connection test, insights
@@ -139,7 +143,8 @@ src/
 │   ├── auth/session.ts         signed session token (Edge + Node safe)
 │   ├── auth/actions.ts         sign in and sign out (server actions)
 │   ├── auth/current-session.ts is this request signed in?
-│   ├── config/business.ts      business facts and cost assumptions
+│   ├── config/business.ts      business facts, cost model, VAT schedule
+│   ├── config/products.ts      Shopify variant → physical box count
 │   ├── config/env.ts           the only place that reads process.env
 │   ├── config/navigation.ts    single source of truth for navigation
 │   ├── supabase/client.ts      browser client (anon key, RLS)
@@ -201,6 +206,23 @@ or refreshing a link therefore reproduces the same figures. `last7` and
 `last30` cover complete days and exclude today, matching Meta Ads Manager; a
 part-day at the end would drag every rate down. A range that cannot be honoured
 is reported, never silently swapped — see `PeriodAdjustment`.
+
+**Cost is per physical box, never per pack.**
+Customers combine packs freely — 30 boxes is a 20 and a 10, 60 boxes is any
+combination totalling 60 — so nothing may be costed from an order's size or a
+pack's name. `src/core/metrics/boxes.ts` resolves each line to a box count from
+its Shopify variant ID, and every cost is that count times a per-box rate. A
+line it cannot resolve reports `null`, which makes the period's COGS incomplete
+and says so on screen; it never contributes a silent zero. A count inferred from
+a product title is marked as inferred everywhere it appears, because a rename
+would otherwise change a cost without anyone noticing.
+
+**VAT is separated once, at the total.**
+Customer prices and supplier costs are both VAT inclusive. VAT is stripped from
+each period total in one place — `excludeVat` — rather than per order or per
+box, because rounding many small amounts drifts from what a VAT return says.
+Everything below the VAT line in the P&L is ex VAT, and the VAT-inclusive
+figures Shopify reports are kept alongside rather than replaced.
 
 **Sales definitions are fixed in one place.**
 Gross sales are product prices before discounts, reconstructed as Shopify's

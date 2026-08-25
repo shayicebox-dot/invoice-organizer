@@ -5,6 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { ShopifyConnectionCard } from '@/components/settings/shopify-connection-card';
 import { MetaConnectionCard } from '@/components/settings/meta-connection-card';
+import { ProductMappingCard } from '@/components/settings/product-mapping-card';
+import { getProductsPageData } from '@/data/sales-source';
+import { resolvePreset } from '@/core/period';
+import { todayInBusinessTimeZone } from '@/lib/utils/today';
 import { isMetaConfigured, isShopifyConfigured } from '@/lib/config/env';
 import { BUSINESS_CONFIG } from '@/lib/config/business';
 
@@ -18,7 +22,11 @@ export const metadata: Metadata = { title: 'Settings' };
 export const dynamic = 'force-dynamic';
 
 /** Settings is rendered on the server, so it can read configuration directly. */
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  // A recent window, fixed rather than picked: this table is for checking the
+  // cost model's foundation, not for reporting a period.
+  const mappingRange = resolvePreset('last30', todayInBusinessTimeZone());
+  const recent = await getProductsPageData(mappingRange);
   const shopifyConfigured = isShopifyConfigured();
   const metaConfigured = isMetaConfigured();
 
@@ -28,6 +36,15 @@ export default function SettingsPage() {
         title="Settings"
         description="Business profile, cost assumptions and data source connections."
       />
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium tracking-tight text-foreground">Cost model</h2>
+        <ProductMappingCard
+          rows={recent.mapping}
+          range={mappingRange}
+          allMapped={recent.boxes.complete && recent.boxes.titleResolvedLines === 0}
+        />
+      </section>
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-medium tracking-tight text-foreground">Data sources</h2>

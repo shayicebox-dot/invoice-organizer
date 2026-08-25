@@ -43,6 +43,9 @@ export type ShopifyLineItem = {
   /** Line total after line-level and allocated order discounts. */
   readonly discountedTotal: Money;
   readonly productId: string | null;
+  /** The variant sold — how a pack size is identified. May be null if deleted. */
+  readonly variantId: string | null;
+  readonly variantTitle: string | null;
 };
 
 export type ShopifyOrder = {
@@ -250,9 +253,15 @@ function parseOrder(node: unknown, path: string): ShopifyOrder {
 function parseLineItem(node: unknown, path: string): ShopifyLineItem {
   const item = requireRecord(node, path);
   const product = readField(item, 'product');
+  const variant = readField(item, 'variant');
 
   const productRecord =
     product === null || product === undefined ? null : requireRecord(product, `${path}.product`);
+
+  // Shopify returns null here for a variant that has since been deleted, so the
+  // line still has to be readable without one.
+  const variantRecord =
+    variant === null || variant === undefined ? null : requireRecord(variant, `${path}.variant`);
 
   return {
     id: requireString(readField(item, 'id'), `${path}.id`),
@@ -271,6 +280,14 @@ function parseLineItem(node: unknown, path: string): ShopifyLineItem {
       productRecord === null
         ? null
         : requireString(readField(productRecord, 'id'), `${path}.product.id`),
+    variantId:
+      variantRecord === null
+        ? null
+        : requireString(readField(variantRecord, 'id'), `${path}.variant.id`),
+    variantTitle:
+      variantRecord === null
+        ? null
+        : optionalString(readField(variantRecord, 'title'), `${path}.variant.title`),
   };
 }
 

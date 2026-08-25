@@ -4,15 +4,16 @@ import type { DateRange } from '@/core/period';
 import type { CurrencyCode } from '@/core/money';
 import {
   aggregatePeriod,
-  aggregateProductSales,
   emptyTotals,
   type PeriodTotals,
-  type ProductSales,
   type SalesOrder,
 } from '@/core/metrics/sales';
 import { getSalesForPeriod } from '@/data/shopify-orders';
 import type { DataCaveats } from '@/data/dashboard-source';
 import { BUSINESS_CONFIG } from '@/lib/config/business';
+import { aggregateProductProfit, type ProductProfit } from '@/core/metrics/profitability';
+import { describeMapping, tallyBoxes, type BoxTally, type ProductMappingRow } from '@/core/metrics/boxes';
+import { boxMappingConfig, costRatesForRange } from '@/data/profitability-source';
 
 /**
  * Order-level and product-level reads for the Sales and Products screens.
@@ -41,7 +42,12 @@ export type SalesPageData = {
 };
 
 export type ProductsPageData = {
-  readonly products: readonly ProductSales[];
+  /** Per-variant profitability: boxes, cost and contribution. */
+  readonly profitability: readonly ProductProfit[];
+  /** How each line's physical box count was arrived at. */
+  readonly boxes: BoxTally;
+  /** Every distinct pack seen, with its variant ID and how it was mapped. */
+  readonly mapping: readonly ProductMappingRow[];
   readonly currency: CurrencyCode;
   readonly caveats: DataCaveats;
   readonly lineItemsTruncated: boolean;
@@ -107,7 +113,9 @@ export async function getProductsPageData(range: DateRange): Promise<ProductsPag
 
   if (!sales.ok) {
     return {
-      products: [],
+      profitability: [],
+      boxes: { boxes: 0, unresolvedLines: 0, titleResolvedLines: 0, unmappedProducts: [], complete: true },
+      mapping: [],
       currency,
       caveats: emptyCaveats(
         range,
@@ -120,8 +128,12 @@ export async function getProductsPageData(range: DateRange): Promise<ProductsPag
     };
   }
 
+  const mapping = boxMappingConfig();
+
   return {
-    products: aggregateProductSales(sales.orders),
+    profitability: aggregateProductProfit(sales.orders, mapping, costRatesForRange(range)),
+    boxes: tallyBoxes(sales.orders, mapping),
+    mapping: describeMapping(sales.orders, mapping),
     currency: sales.currency,
     caveats: {
       coverage: sales.coverage,
