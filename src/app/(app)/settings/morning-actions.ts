@@ -42,6 +42,7 @@ export async function checkMorningConnection(): Promise<MorningConnectionView> {
       status: 'error',
       message: 'Your session has expired.',
       guidance: 'Sign in again to run the connection test.',
+      httpStatus: null,
       checkedAt,
     };
   }
@@ -51,6 +52,7 @@ export async function checkMorningConnection(): Promise<MorningConnectionView> {
       status: 'error',
       message: 'Too many connection tests in the last minute.',
       guidance: 'Wait a moment and try again.',
+      httpStatus: null,
       checkedAt,
     };
   }
@@ -60,6 +62,7 @@ export async function checkMorningConnection(): Promise<MorningConnectionView> {
       status: 'not-connected',
       message: 'Morning credentials are not set on this deployment.',
       guidance: 'Add MORNING_CLIENT_ID and MORNING_CLIENT_SECRET in Vercel, then redeploy.',
+      httpStatus: null,
       checkedAt,
     };
   }
@@ -71,6 +74,7 @@ export async function checkMorningConnection(): Promise<MorningConnectionView> {
       status: result.reason === 'not-configured' ? 'not-connected' : 'error',
       message: result.message,
       guidance: result.guidance,
+      httpStatus: result.status,
       checkedAt,
     };
   }

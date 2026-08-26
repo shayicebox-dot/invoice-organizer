@@ -75,7 +75,7 @@ export function MorningConnectionCard({ configured }: MorningConnectionCardProps
 
           <span className="text-xs text-foreground-subtle">
             {result === null
-              ? 'Reads the account only — no invoices, revenue or client records are fetched.'
+              ? 'One authenticated read that proves the token works — no invoices, revenue or client records are fetched.'
               : `Last checked ${formatCheckedAt(result.checkedAt)}`}
           </span>
         </div>
@@ -84,7 +84,11 @@ export function MorningConnectionCard({ configured }: MorningConnectionCardProps
           {result === null ? null : result.status === 'connected' ? (
             <ConnectedDetails result={result} />
           ) : (
-            <FailureDetails message={result.message} guidance={result.guidance} />
+            <FailureDetails
+              message={result.message}
+              guidance={result.guidance}
+              httpStatus={result.httpStatus}
+            />
           )}
         </div>
 
@@ -106,7 +110,7 @@ function ConnectedDetails({
     <div className="flex flex-col gap-4">
       <p className="flex items-center gap-2 text-sm text-positive">
         <CheckCircle2 className="size-4" aria-hidden="true" />
-        Morning accepted the credentials.
+        Morning accepted the credentials and answered the authenticated read.
       </p>
 
       <dl className="grid gap-x-6 gap-y-0 sm:grid-cols-2">
@@ -116,13 +120,6 @@ function ConnectedDetails({
         <DetailRow label="API host" value={result.host} />
         <DetailRow label="Environment" value={result.environment} />
       </dl>
-
-      {result.businessName === null ? (
-        <Notice>
-          Morning did not include a business name in its answer. Authentication still succeeded —
-          only the name is missing.
-        </Notice>
-      ) : null}
 
       {result.environment === 'sandbox' ? (
         <Notice>
@@ -137,9 +134,11 @@ function ConnectedDetails({
 function FailureDetails({
   message,
   guidance,
+  httpStatus,
 }: {
   readonly message: string;
   readonly guidance: string;
+  readonly httpStatus: number | null;
 }) {
   return (
     <div className="rounded-lg border border-border-subtle bg-surface-muted p-4">
@@ -148,6 +147,11 @@ function FailureDetails({
         {message}
       </p>
       <p className="mt-1.5 pl-6 text-sm text-foreground-muted">{guidance}</p>
+      {/* The status alone, with no response body: enough to diagnose, nothing
+          from the answer itself. */}
+      {httpStatus === null ? null : (
+        <p className="numeric mt-1.5 pl-6 text-xs text-foreground-subtle">HTTP {httpStatus}</p>
+      )}
     </div>
   );
 }

@@ -18,7 +18,7 @@ import { isRecord, readField } from '@/integrations/shopify/json';
 const REQUEST_TIMEOUT_MS = 20_000;
 
 export type MorningRequest = {
-  /** Path after the version segment, e.g. `users/me`. */
+  /** Path after the version segment, e.g. `documents/info?type=320`. */
   readonly path: string;
   readonly config?: MorningConfig;
 };
@@ -54,6 +54,7 @@ async function executeOnce(config: MorningConfig, path: string): Promise<unknown
       method: 'GET',
       headers: {
         Accept: 'application/json',
+        'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
       cache: 'no-store',

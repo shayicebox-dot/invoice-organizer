@@ -7,9 +7,15 @@ connecting Morning changes neither.
 ## What it does today
 
 Proves that ICEBOX OS can authenticate. `testMorningConnection()` mints a token
-from the API key pair and makes one read-only call to `GET /users/me`, the
-smallest request that shows the credentials are accepted. It reads no documents,
-no revenue and no client records, and it writes nothing.
+from the API key pair and makes one read-only call to
+`GET /documents/info?type=320`, which reports the document settings for one
+document type. Nothing in the answer is read as a figure: it is used purely as
+an authenticated GET that fails without a valid token. No document, no revenue
+and no client record is read, and nothing is written.
+
+`type=320` is Morning's code for חשבונית מס/קבלה. It selects which settings the
+probe asks about and nothing else — it classifies no revenue and applies no VAT
+treatment.
 
 ## Files
 
@@ -43,6 +49,8 @@ no revenue and no client records, and it writes nothing.
   Keys" menu at all. A 403 is reported as a plan problem first, because that is
   what it usually is.
 - **Rate limit** is roughly three requests a second; 429 is a soft error.
+- **`GET /users/me` does not exist.** It appears in older write-ups of this API
+  and answers 404. The connection test used it once and had to be corrected.
 - **Token expiry unit is undocumented.** `expires` is parsed as epoch seconds or
   milliseconds, and anything unrecognised falls back to a five-minute lifetime
   rather than being trusted.

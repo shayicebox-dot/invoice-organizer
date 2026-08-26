@@ -20,5 +20,11 @@ export type MorningConnectionView =
       readonly status: 'error' | 'not-connected';
       readonly message: string;
       readonly guidance: string;
+      /**
+       * The HTTP status Morning answered with, shown so a failure can be
+       * reported precisely. `null` when the request never got an answer —
+       * unset credentials, an expired session, a timeout, an unreachable host.
+       */
+      readonly httpStatus: number | null;
       readonly checkedAt: string;
     };
