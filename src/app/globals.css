@@ -21,8 +21,11 @@
   --accent-foreground: #ffffff;
   --accent-muted: #eef2ff;
   --positive: #15803d;
+  --positive-muted: #f0fdf4;
   --negative: #b91c1c;
+  --negative-muted: #fef2f2;
   --warning: #b45309;
+  --warning-muted: #fffbeb;
   --ring: #4f46e5;
 }
 
@@ -39,8 +42,11 @@
   --accent-foreground: #ffffff;
   --accent-muted: #1e1b3a;
   --positive: #4ade80;
+  --positive-muted: #0d1f16;
   --negative: #f87171;
+  --negative-muted: #241315;
   --warning: #fbbf24;
+  --warning-muted: #241c0d;
   --ring: #6366f1;
 }
 
@@ -57,8 +63,11 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-accent-muted: var(--accent-muted);
   --color-positive: var(--positive);
+  --color-positive-muted: var(--positive-muted);
   --color-negative: var(--negative);
+  --color-negative-muted: var(--negative-muted);
   --color-warning: var(--warning);
+  --color-warning-muted: var(--warning-muted);
   --color-ring: var(--ring);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
