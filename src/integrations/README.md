@@ -6,9 +6,10 @@ Adapters for everything outside ICEBOX OS.
   is the source for orders, revenue, discounts and refunds. See its README.
 - `meta/` — Marketing API client, connection test and Insights reads. Live: it
   is the source for ad spend and campaign performance. See its README.
+- `morning/` — Morning (Green Invoice) invoicing. Connection test only: it
+  proves authentication works and feeds no figure on any screen. See its README.
 
-Planned: `google-ads/`, Israeli invoicing/accounting providers, and payment
-processors.
+Planned: `google-ads/` and payment processors.
 
 **Rules**
 

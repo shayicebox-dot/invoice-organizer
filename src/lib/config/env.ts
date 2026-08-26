@@ -126,6 +126,33 @@ export function isMetaConfigured(): boolean {
 }
 
 /**
+ * Morning (Green Invoice) API key pair. Server-side only, and never prefixed
+ * `NEXT_PUBLIC_` — the secret mints tokens that can read and issue documents in
+ * the business's accounting system.
+ */
+export function morningEnv(): {
+  clientId: string;
+  clientSecret: string;
+  environment: string | undefined;
+} {
+  assertServer('morningEnv()');
+  return {
+    clientId: required('MORNING_CLIENT_ID', process.env.MORNING_CLIENT_ID),
+    clientSecret: required('MORNING_CLIENT_SECRET', process.env.MORNING_CLIENT_SECRET),
+    environment: process.env.MORNING_ENVIRONMENT,
+  };
+}
+
+/** True when both Morning variables are present, without reading their values. */
+export function isMorningConfigured(): boolean {
+  if (typeof window !== 'undefined') return false;
+  return (
+    (process.env.MORNING_CLIENT_ID ?? '').length > 0 &&
+    (process.env.MORNING_CLIENT_SECRET ?? '').length > 0
+  );
+}
+
+/**
  * Shared secret protecting the integration test endpoints until real
  * authentication exists. `null` means unset — endpoints then refuse to run
  * rather than defaulting to being publicly callable.
