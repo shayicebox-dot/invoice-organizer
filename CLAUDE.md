@@ -34,8 +34,8 @@ MVP dashboard over an empty data source. What exists:
   performance; Expenses reports the full cost breakdown
 - Profitability engine: VAT, per-box COGS and shipping, a variable rate, and
   monthly fixed costs allocated across the selected days, down to net profit
-- Settings: Shopify and Meta Ads connection status, each with a server-side
-  "Test connection" check
+- Settings: Shopify, Meta Ads and Morning connection status, each with a
+  server-side "Test connection" check
 - Single-owner login: password in `ICEBOX_ADMIN_PASSWORD`, signed HTTP-only
   session cookie, middleware protecting every page and action, sign-out button
 - Shopify Admin GraphQL integration in `src/integrations/shopify` — client
@@ -44,6 +44,10 @@ MVP dashboard over an empty data source. What exists:
   token auth, connection test and Insights reads
 - Meta is the live source for ad spend, and feeds Marketing spend, ROAS and CPA
   on the dashboard plus the whole Marketing screen
+- Morning (Green Invoice) integration in `src/integrations/morning` — API key
+  pair exchanged for a short-lived JWT, and a read-only connection test. It
+  proves authentication works and nothing more: no figure on any screen depends
+  on it
 
 What does **not** exist yet, and must not be invented ad hoc:
 
@@ -51,7 +55,9 @@ What does **not** exist yet, and must not be invented ad hoc:
 - Income tax and corporate tax; inventory and cash-flow modelling
 - Deductible input VAT on expenses — output VAT is separated, input VAT is not
 - Payment processing measured separately, rather than inside the 5% rate
-- Google Ads, invoicing and payment integrations
+- Google Ads and payment integrations
+- Any use of Morning beyond proving the connection — no documents are read, and
+  revenue still comes from Shopify alone
 - Storage of imported Shopify orders (each page load reads Shopify live)
 - Any real or sample financial data
 
@@ -144,7 +150,8 @@ src/
 │   └── box-mapping-store.ts    variant → box mapping, stored in the database
 ├── integrations/               external systems — server only
 │   ├── shopify/                Admin GraphQL client, connection test, orders
-│   └── meta/                   Marketing API client, connection test, insights
+│   ├── meta/                   Marketing API client, connection test, insights
+│   └── morning/                Green Invoice auth and connection test only
 ├── lib/
 │   ├── auth/session.ts         signed session token (Edge + Node safe)
 │   ├── auth/actions.ts         sign in and sign out (server actions)
@@ -351,6 +358,11 @@ deliberately — never hardcoded to today's values.
 - **Credentials travel in headers, never in URLs.** Meta accepts its access
   token as a query parameter; ICEBOX sends it as `Authorization: Bearer`
   instead, because query strings reach server logs, proxies and error reports.
+- **A read-only integration exposes no way to write.** The Morning client has
+  a `GET` and nothing else, so no code path in ICEBOX OS can create, alter or
+  cancel a document in the accounting system. Where a host is chosen rather
+  than configured — Morning's production and sandbox URLs are fixed constants —
+  a wrong environment variable cannot redirect credentials somewhere else.
 - **One owner, one password.** `ICEBOX_ADMIN_PASSWORD` is the login credential
   and the key that signs session cookies, so rotating it signs every device out.
   `src/proxy.ts` requires a valid session for every route except the login

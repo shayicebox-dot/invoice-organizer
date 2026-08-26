@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { ShopifyConnectionCard } from '@/components/settings/shopify-connection-card';
 import { MetaConnectionCard } from '@/components/settings/meta-connection-card';
+import { MorningConnectionCard } from '@/components/settings/morning-connection-card';
 import { ProductMappingCard } from '@/components/settings/product-mapping-card';
 import { getProductsPageData } from '@/data/sales-source';
 import { readBoxMapping } from '@/data/box-mapping-store';
@@ -12,7 +13,12 @@ import { formatDateRange } from '@/lib/utils/format';
 import { resolvePreset } from '@/core/period';
 import { todayInBusinessTimeZone } from '@/lib/utils/today';
 import { DeploymentCard } from '@/components/settings/deployment-card';
-import { deploymentInfo, isMetaConfigured, isShopifyConfigured } from '@/lib/config/env';
+import {
+  deploymentInfo,
+  isMetaConfigured,
+  isMorningConfigured,
+  isShopifyConfigured,
+} from '@/lib/config/env';
 import { BUSINESS_CONFIG } from '@/lib/config/business';
 
 export const metadata: Metadata = { title: 'Settings' };
@@ -35,6 +41,7 @@ export default async function SettingsPage() {
   ]);
   const shopifyConfigured = isShopifyConfigured();
   const metaConfigured = isMetaConfigured();
+  const morningConfigured = isMorningConfigured();
 
   return (
     <div className="flex flex-col gap-6">
@@ -62,6 +69,7 @@ export default async function SettingsPage() {
         <h2 className="text-sm font-medium tracking-tight text-foreground">Data sources</h2>
         <ShopifyConnectionCard configured={shopifyConfigured} />
         <MetaConnectionCard configured={metaConfigured} />
+        <MorningConnectionCard configured={morningConfigured} />
       </section>
 
       <section className="flex flex-col gap-3">
