@@ -23,8 +23,19 @@ const HOSTS = {
 
 export type MorningEnvironment = keyof typeof HOSTS;
 
-/** The read-only endpoint the connection test calls. Returns the signed-in account. */
-export const IDENTITY_PATH = 'users/me';
+/**
+ * The read-only endpoint the connection test calls.
+ *
+ * `documents/info` reports the document settings for one document type. It is
+ * used here purely as an authenticated GET that fails without a valid token —
+ * nothing about its answer is read as a figure, and no document is fetched.
+ *
+ * The type parameter is Morning's own code for חשבונית מס/קבלה, the document
+ * type an Israeli business issues most often. It selects which settings the
+ * probe asks about and nothing else; it classifies no revenue and applies no
+ * VAT treatment.
+ */
+export const VERIFY_PATH = 'documents/info?type=320';
 
 /** Where the API keys come from, quoted in guidance so the owner can find it. */
 export const CREDENTIALS_LOCATION = 'אזור אישי → כלים למפתחים → מפתחות API';

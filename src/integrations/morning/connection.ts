@@ -4,7 +4,7 @@ import { morningGet } from '@/integrations/morning/client';
 import {
   CREDENTIALS_LOCATION,
   getMorningConfig,
-  IDENTITY_PATH,
+  VERIFY_PATH,
   MorningConfigError,
   type MorningEnvironment,
 } from '@/integrations/morning/config';
@@ -30,9 +30,10 @@ import { isRecord, readField } from '@/integrations/shopify/json';
 
 export type MorningAccountIdentity = {
   /**
-   * The business name, when the account exposes one. `null` is a real answer —
-   * authentication succeeded and the name simply was not in the response — and
-   * is reported as such rather than filled in with the account id or a guess.
+   * The business name, when the answer happens to carry one. The endpoint this
+   * check calls reports document settings rather than the account, so `null` is
+   * the ordinary case and not a fault — authentication is what is being proven,
+   * and a name that is not there is left absent rather than guessed at.
    */
   readonly businessName: string | null;
   readonly environment: MorningEnvironment;
@@ -47,6 +48,12 @@ export type MorningConnectionResult =
       readonly reason: MorningFailureReason;
       readonly message: string;
       readonly guidance: string;
+      /**
+       * The HTTP status Morning answered with, when the request got that far.
+       * `null` for a failure with no response — unset credentials, an invalid
+       * configuration, a timeout, an unreachable host.
+       */
+      readonly status: number | null;
     };
 
 export async function testMorningConnection(): Promise<MorningConnectionResult> {
@@ -56,7 +63,7 @@ export async function testMorningConnection(): Promise<MorningConnectionResult> 
 
   try {
     const config = getMorningConfig();
-    const payload = await morningGet({ path: IDENTITY_PATH, config });
+    const payload = await morningGet({ path: VERIFY_PATH, config });
 
     return {
       ok: true,
@@ -71,20 +78,22 @@ export async function testMorningConnection(): Promise<MorningConnectionResult> 
       return failure('invalid-configuration', error.message);
     }
     if (error instanceof MorningError) {
-      return failure(error.reason, error.message);
+      return failure(error.reason, error.message, error.status);
     }
     return failure('network-error', 'Morning connection test failed.');
   }
 }
 
 /**
- * Find the business name without insisting on a shape.
+ * Find the business name, if the answer carries one, without insisting on a
+ * shape. An unrecognised body yields `null`: a display detail must never turn a
+ * successful authentication into a reported failure.
  *
- * Morning's response body for this endpoint is not documented field by field,
- * and the account name is a convenience here rather than the thing being
- * proven. So the known spellings are tried in turn and an unrecognised shape
- * yields `null` — a display detail must never turn a successful authentication
- * into a reported failure.
+ * Only a name nested under a business object counts. A bare top-level `name` is
+ * deliberately ignored, because on a document-settings response that field is
+ * far more likely to be a document type's own label — and showing
+ * "חשבונית מס/קבלה" where the business name belongs would be a plausible-looking
+ * wrong answer, which is worse than an absent one.
  */
 function readBusinessName(payload: unknown): string | null {
   if (!isRecord(payload)) return null;
@@ -106,11 +115,6 @@ function readBusinessName(payload: unknown): string | null {
     }
   }
 
-  for (const key of ['businessName', 'name']) {
-    const value = readField(payload, key);
-    if (isNonEmptyString(value)) return value.trim();
-  }
-
   return null;
 }
 
@@ -118,8 +122,12 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function failure(reason: MorningFailureReason, message: string): MorningConnectionResult {
-  return { ok: false, reason, message, guidance: MORNING_FAILURE_GUIDANCE[reason] };
+function failure(
+  reason: MorningFailureReason,
+  message: string,
+  status: number | null = null,
+): MorningConnectionResult {
+  return { ok: false, reason, message, guidance: MORNING_FAILURE_GUIDANCE[reason], status };
 }
 
 /** Where the owner creates the API key pair, for display in Settings. */
