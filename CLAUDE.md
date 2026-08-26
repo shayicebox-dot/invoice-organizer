@@ -19,8 +19,12 @@ MVP dashboard over an empty data source. What exists:
 - Next.js App Router + TypeScript (strict) + Tailwind CSS v4
 - Supabase client factories (browser / server / service-role) — installed, not used yet
 - Dashboard layout: sidebar, top bar, responsive desktop and mobile chrome
-- Dashboard: 10 KPI tiles, revenue overview, marketing performance, profit
-  breakdown, daily performance chart, recent orders table, data-source panel
+- Dashboard: net profit hero, a plain-language status line, break-even gauges
+  for CPA and ROAS, the profitability waterfall, daily chart, demoted detail
+  metrics, marketing performance, recent orders, data-source panel
+- Comparison against the previous period of the same length on the headline
+  figures, with colour following whether the change is good news rather than
+  its direction
 - Date range picker: quick presets plus a manual start/end calendar, carried in
   the URL as `?from=&to=` and applied identically on every screen
 - Money primitives and pure metric calculations in `src/core`
@@ -129,7 +133,8 @@ src/
 ├── core/                       business logic — pure, no I/O
 │   ├── money.ts                integer minor units, decimal parsing, no floats
 │   ├── period.ts               reporting ranges, presets, calendar arithmetic
-│   └── metrics/                dashboard, sales, advertising, boxes, P&L
+│   └── metrics/                dashboard, sales, advertising, boxes, P&L,
+│                                break-even, period comparison, status summary
 ├── data/
 │   ├── shopify-orders.ts       Shopify payloads → SalesOrder (the mapping)
 │   ├── dashboard-source.ts     dashboard totals, daily series, recent orders
@@ -288,6 +293,15 @@ business timezone, and the gap is measured and shown, never silently corrected.
 Meta's purchases and purchase value come from Meta's attribution window and
 will not match Shopify's orders. They are shown as Meta's figures, labelled as
 such, beside the store's — never merged into one number.
+
+**One hero figure, and the reader's first question answered first.**
+The dashboard leads with net profit and nothing else at that size — a screen
+with two things competing for first place has no first place. Profit or loss is
+carried by the label, the sign and a restrained tint together, never by colour
+alone. Break-even is drawn as a marker part-way along a track so "past the
+line" and "short of the line" are told apart before any figure is read, and the
+gap it shows is exact: `net profit = orders × (break-even CPA − actual CPA)`.
+Cost detail is demoted below the fold rather than removed.
 
 **Israeli context is a first-class concern.**
 VAT (including rate changes over time), VAT reporting periods, zero-rated

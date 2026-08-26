@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { BUSINESS_CONFIG, hasCostConfiguration } from '@/lib/config/business';
-import type { ClampedRange, DateRange } from '@/core/period';
+import { previousRange, type ClampedRange, type DateRange } from '@/core/period';
 import type { DailySeries } from '@/core/metrics/daily';
 import type { PeriodInputs } from '@/core/metrics/types';
 import { aggregatePeriod, buildDailySeries, emptyTotals, type SalesOrder } from '@/core/metrics/sales';
@@ -63,6 +63,14 @@ export type DashboardData = {
   readonly inputs: PeriodInputs;
   /** The full profit and loss for the period, and how solid its inputs are. */
   readonly profitability: ProfitabilityResult;
+  /**
+   * The same period length immediately before this one, for comparison.
+   *
+   * `null` when it could not be read — outside the history Shopify serves, or a
+   * failed request. A comparison that cannot be made is omitted rather than
+   * shown against a zero, which would read as "down 100%".
+   */
+  readonly previous: PreviousPeriod | null;
   readonly daily: DailySeries;
   readonly recentOrders: readonly RecentOrder[];
   readonly sources: readonly DataSource[];
@@ -70,6 +78,45 @@ export type DashboardData = {
 };
 
 const RECENT_ORDERS_SHOWN = 8;
+
+export type PreviousPeriod = {
+  readonly range: DateRange;
+  readonly pnl: ProfitabilityResult['pnl'];
+};
+
+/**
+ * The previous period's profit and loss, or `null`.
+ *
+ * Runs the identical engine over a different range — it is not a second
+ * definition of anything. Failures are swallowed on purpose: a comparison is a
+ * convenience, and losing it must never take the current period's figures down
+ * with it.
+ */
+async function loadPreviousPeriod(range: DateRange): Promise<PreviousPeriod | null> {
+  try {
+    const sales = await getSalesForPeriod(range);
+    if (!sales.ok) return null;
+
+    // Shopify trims a range to the history it has. A previous period that came
+    // back shorter is not comparable, so it is dropped rather than compared.
+    if (sales.coverage.truncated) return null;
+
+    const totals = aggregatePeriod(sales.orders, sales.currency, sales.salesReversals);
+    const marketing = await getMetaSpend(sales.coverage.range);
+
+    const { pnl } = await buildProfitability({
+      range: sales.coverage.range,
+      orders: sales.orders,
+      totals,
+      sourceAnswered: true,
+      adSpend: marketing.spend,
+    });
+
+    return { range: sales.coverage.range, pnl };
+  } catch {
+    return null;
+  }
+}
 
 function buildSources(shopifyConnected: boolean, metaConnected: boolean): readonly DataSource[] {
   return [
@@ -123,7 +170,12 @@ function emptyInputs(): PeriodInputs {
  * shorter period's revenue — a plausible-looking ROAS that is simply wrong.
  */
 export async function getDashboardData(range: DateRange): Promise<DashboardData> {
-  const sales = await getSalesForPeriod(range);
+  // The previous period does not depend on this one's coverage, so both are
+  // read at once rather than one after the other.
+  const [sales, previous] = await Promise.all([
+    getSalesForPeriod(range),
+    loadPreviousPeriod(previousRange(range)),
+  ]);
 
   if (!sales.ok) {
     const marketing = await getMetaSpend(range);
@@ -141,6 +193,7 @@ export async function getDashboardData(range: DateRange): Promise<DashboardData>
       daily: [],
       recentOrders: [],
       sources: buildSources(false, isMetaConfigured()),
+      previous,
       caveats: {
         coverage: sales.coverage,
         availableFrom: null,
@@ -178,6 +231,7 @@ export async function getDashboardData(range: DateRange): Promise<DashboardData>
     daily: buildDailySeries(sales.orders, sales.coverage.range, sales.currency),
     recentOrders: toRecentOrders(sales.orders),
     sources: buildSources(isShopifyConfigured(), isMetaConfigured()),
+    previous,
     caveats: {
       coverage: sales.coverage,
       availableFrom: sales.availableFrom,

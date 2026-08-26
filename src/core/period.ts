@@ -304,6 +304,19 @@ export function monthSlices(range: DateRange): readonly MonthSlice[] {
   return slices;
 }
 
+/**
+ * The period immediately before this one, of the same length.
+ *
+ * Used only for comparison. Same length so the two are comparable at all: a
+ * 25-day period compared against a calendar month would show a change that is
+ * mostly the difference in length.
+ */
+export function previousRange(range: DateRange): DateRange {
+  const length = daysBetween(range);
+  const end = addDays(range.start, -1);
+  return { start: addDays(end, -(length - 1)), end };
+}
+
 /** True when `date` falls inside the range, inclusive. */
 export function isWithinRange(date: string, range: DateRange): boolean {
   return date >= range.start && date <= range.end;
