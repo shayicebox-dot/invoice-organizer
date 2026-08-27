@@ -21,7 +21,8 @@ treatment.
 
 **Reads recorded payments, for inspection.** `fetchPaymentsInRange` searches
 `POST /documents/payments/search` for the credit-card (3) and payment-app (10)
-payment types over a date range, following pagination to the end. It exists to
+payment types over a date range, 25 rows a page — Morning's documented size —
+following the page count it returns to the end. It exists to
 answer what ICEBOX's real collections look like in Morning before any of them
 are allowed near a financial figure. Nothing downstream reads it: no dashboard
 figure, no metric, no P&L line.
@@ -74,6 +75,12 @@ evidence rather than guessing at the answer.
   Keys" menu at all. A 403 is reported as a plan problem first, because that is
   what it usually is.
 - **Rate limit** is roughly three requests a second; 429 is a soft error.
+- **The search page size is validated, and 25 is the documented one.** Asking
+  for more is refused with 400 `גודל תוצאות חיפוש לא תקין` ("invalid search
+  result size"). How many rows a screen shows is a separate question from how
+  many rows one request may ask for.
+- **Search pages are numbered from 1**, and the answer states how many pages
+  there are. Asking for page 0 is a validation error.
 - **`GET /users/me` does not exist.** It appears in older write-ups of this API
   and answers 404. The connection test used it once and had to be corrected.
 - **Token expiry unit is undocumented.** `expires` is parsed as epoch seconds or
