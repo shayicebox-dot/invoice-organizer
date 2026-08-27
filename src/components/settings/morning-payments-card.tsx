@@ -7,9 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import { readMorningPayments } from '@/app/(app)/settings/morning-payment-actions';
 import type {
   MorningPaymentsView,
+  OriginTotalView,
   PaymentRowView,
   PaymentTypeTotalView,
 } from '@/components/settings/morning-payments-status';
+import type { SalesOrigin } from '@/lib/config/sales-origin';
 import { formatCount, formatMoney, formatProviderDate } from '@/lib/utils/format';
 import { DiagnosticBoundary } from '@/components/settings/diagnostic-boundary';
 import type { DateRange } from '@/core/period';
@@ -38,6 +40,18 @@ const TYPE_LABELS: Readonly<Record<number, string>> = {
   10: 'Payment app',
 };
 
+const ORIGIN_LABELS: Readonly<Record<SalesOrigin, string>> = {
+  external: 'External paid revenue',
+  shopify: 'Shopify-originated',
+  unclassified: 'Unclassified',
+};
+
+const ORIGIN_SHORT: Readonly<Record<SalesOrigin, string>> = {
+  external: 'External sale',
+  shopify: 'Shopify-originated',
+  unclassified: 'Unclassified',
+};
+
 type MorningPaymentsCardProps = {
   readonly configured: boolean;
   readonly range: DateRange;
@@ -64,7 +78,7 @@ export function MorningPaymentsCard({ configured, range }: MorningPaymentsCardPr
             <CardTitle>Morning payment diagnostics</CardTitle>
             <CardDescription>
               {configured
-                ? 'Reads the credit-card and payment-app payments Morning recorded in the selected period, exactly as Morning reports them.'
+                ? 'Reads the credit-card and payment-app payments Morning recorded in the selected period, and classifies each by where its sale came from.'
                 : 'Morning credentials are not set on this deployment.'}
             </CardDescription>
           </div>
@@ -118,6 +132,12 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
   return (
     <div className="flex flex-col gap-5">
       <div className="grid gap-3 sm:grid-cols-3">
+        {result.byOrigin.map((total) => (
+          <OriginTile key={total.origin} total={total} />
+        ))}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
         {result.totals.map((total) => (
           <TotalTile key={total.typeCode} total={total} />
         ))}
@@ -134,6 +154,33 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
         <Notice>
           The page sweep stopped at its ceiling, so more payments exist in this period than were
           read. The totals above cover only what was read and are therefore incomplete.
+        </Notice>
+      ) : null}
+
+      {result.unpaidCount > 0 || result.cancelledCount > 0 ? (
+        <Notice>
+          Left out of every total:{' '}
+          {result.unpaidCount > 0
+            ? `${formatCount(result.unpaidCount)} ${
+                result.unpaidCount === 1 ? 'payment' : 'payments'
+              } Morning records as not paid`
+            : null}
+          {result.unpaidCount > 0 && result.cancelledCount > 0 ? ', and ' : null}
+          {result.cancelledCount > 0
+            ? `${formatCount(result.cancelledCount)} on documents Morning has cancelled`
+            : null}
+          . They are still listed below, because a total that silently drops rows is not evidence.
+        </Notice>
+      ) : null}
+
+      {result.ambiguousCount > 0 ? (
+        <Notice>
+          {result.ambiguousCount === 1
+            ? 'One payment carried both phrases'
+            : `${formatCount(result.ambiguousCount)} payments carried both phrases`}{' '}
+          in the same document. Each was read as Shopify-originated, because counting a sale Shopify
+          already reports a second time is the one mistake worth ruling out. They are marked
+          &ldquo;both phrases&rdquo; below — worth checking before this rule decides any figure.
         </Notice>
       ) : null}
 
@@ -177,8 +224,8 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
         Read from the <span className="text-foreground-muted">{result.shape}</span> field of
         Morning&rsquo;s answer, then from each document&rsquo;s nested{' '}
         <span className="text-foreground-muted">{result.paymentKey ?? 'payment'}</span> array. Every
-        figure comes from a payment entry; the document supplies only its id, number and type.
-        Payment type codes are Morning&rsquo;s own. What
+        amount comes from a payment entry; the document supplies its id, number, type, status and
+        the descriptions the classification reads. Payment type codes are Morning&rsquo;s own. What
         <span className="text-foreground-muted"> subType</span>,
         <span className="text-foreground-muted"> appType</span> and the observed fields mean for
         this account is not interpreted here — that is the question this panel exists to answer.
@@ -194,6 +241,91 @@ function pagesDetail(pagesRead: number, pagesReported: number | null): string {
   return pagesReported === null
     ? `${formatCount(pagesRead)} ${unit} read`
     : `${formatCount(pagesRead)} of ${formatCount(pagesReported)} ${unit} read`;
+}
+
+/**
+ * One origin's signed total.
+ *
+ * Signed, because a credit note against a direct sale reduces external revenue
+ * rather than adding to it. A negative total is therefore a real answer for a
+ * period whose refunds outweighed its sales, not an error.
+ */
+function OriginTile({ total }: { readonly total: OriginTotalView }) {
+  const value =
+    total.totals.length === 0
+      ? '—'
+      : total.totals.map((amount) => formatMoney(amount, { showDecimals: true })).join(' · ');
+
+  const parts = [
+    `${formatCount(total.settledCount)} settled of ${formatCount(total.count)}`,
+    total.reversals === 0
+      ? null
+      : `${formatCount(total.reversals)} ${total.reversals === 1 ? 'reversal' : 'reversals'}`,
+    total.unpriced === 0
+      ? null
+      : `${formatCount(total.unpriced)} not priced${
+          total.unsupportedCurrencies.length === 0
+            ? ''
+            : ` (${total.unsupportedCurrencies.join(', ')})`
+        }`,
+  ].filter((part): part is string => part !== null);
+
+  return <Tile label={ORIGIN_LABELS[total.origin]} value={value} detail={parts.join(' · ')} />;
+}
+
+/**
+ * The descriptions the classification read.
+ *
+ * Shown so the rule can be checked against the text it was applied to, rather
+ * than trusted. `dir="auto"` lets Hebrew lay itself out, and isolation stops it
+ * reordering the columns around it.
+ */
+function Descriptions({ descriptions }: { readonly descriptions: readonly string[] }) {
+  const first = descriptions[0];
+
+  if (first === undefined) return <span className="text-foreground-subtle">—</span>;
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span
+        dir="auto"
+        className="block truncate [unicode-bidi:isolate]"
+        title={descriptions.join('\n')}
+      >
+        {first}
+      </span>
+      {descriptions.length > 1 ? (
+        <span className="text-xs text-foreground-subtle">
+          +{formatCount(descriptions.length - 1)} more
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+/** Where the sale came from, plus anything that keeps this row out of a total. */
+function Classification({ row }: { readonly row: PaymentRowView }) {
+  const tone =
+    row.origin === 'external'
+      ? 'border-positive/30 bg-positive-muted text-foreground'
+      : row.origin === 'shopify'
+        ? 'border-border-subtle bg-surface-muted text-foreground-muted'
+        : 'border-warning/30 bg-warning/5 text-foreground-muted';
+
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <span className={`inline-block rounded border px-1.5 py-0.5 text-xs whitespace-nowrap ${tone}`}>
+        {ORIGIN_SHORT[row.origin]}
+      </span>
+      <div className="flex flex-wrap gap-1">
+        {row.settlement === 'settled' ? null : (
+          <Chip label={row.settlement === 'unpaid' ? 'not paid' : 'cancelled'} />
+        )}
+        {row.isReversal ? <Chip label="reversal" /> : null}
+        {row.originAmbiguous ? <Chip label="both phrases" /> : null}
+      </div>
+    </div>
+  );
 }
 
 function TotalTile({ total }: { readonly total: PaymentTypeTotalView }) {
@@ -243,7 +375,9 @@ function PaymentTable({ rows }: { readonly rows: readonly PaymentRowView[] }) {
             <Th align="left">Payment date</Th>
             <Th>Amount</Th>
             <Th align="left">Currency</Th>
-            <Th align="left">Payment type</Th>
+            <Th align="left">Payment method</Th>
+            <Th align="left">Description</Th>
+            <Th align="left">Classification</Th>
             <Th align="left">Parent document</Th>
             <Th align="left">Morning IDs</Th>
             <Th align="left">Observed payment fields</Th>
@@ -285,18 +419,33 @@ function PaymentRow({ row }: { readonly row: PaymentRowView }) {
           </span>
         )}
       </td>
+      {/* A settled payment shows the amount as it reaches the total — negative
+          for a reversal — so the arithmetic above the table can be followed. A
+          payment in no total is shown muted, as Morning stated it. */}
       <td className="numeric py-2.5 pr-4 text-right whitespace-nowrap">
-        {row.amount === null ? (
-          // Shown muted and as-received: this is not a figure, it is what
-          // Morning said where a figure was expected.
+        {row.settledAmount !== null ? (
           <span
-            className="text-foreground-subtle"
-            title="Morning's value could not be read as an amount, so it is excluded from the totals"
+            title={
+              row.isReversal
+                ? `Morning states ${row.rawAmount ?? 'this'} on a credit note; it reduces the total`
+                : undefined
+            }
           >
-            {row.rawAmount ?? '—'}
+            {formatMoney(row.settledAmount, { showDecimals: true })}
           </span>
         ) : (
-          formatMoney(row.amount, { showDecimals: true })
+          <span
+            className="text-foreground-subtle"
+            title={
+              row.settlement !== 'settled'
+                ? 'Not settled, so it is in no total'
+                : "Morning's value could not be read as an amount, so it is excluded from the totals"
+            }
+          >
+            {row.amount === null
+              ? (row.rawAmount ?? '—')
+              : formatMoney(row.amount, { showDecimals: true })}
+          </span>
         )}
       </td>
       <td className="py-2.5 pr-4 whitespace-nowrap">
@@ -317,6 +466,12 @@ function PaymentRow({ row }: { readonly row: PaymentRowView }) {
           : `${row.typeCode}${
               TYPE_LABELS[row.typeCode] === undefined ? '' : ` · ${TYPE_LABELS[row.typeCode]}`
             }`}
+      </td>
+      <td className="max-w-[20rem] py-2.5 pr-4">
+        <Descriptions descriptions={row.descriptions} />
+      </td>
+      <td className="py-2.5 pr-4">
+        <Classification row={row} />
       </td>
       <td className="py-2.5 pr-4 whitespace-nowrap">
         {row.documentNumber === null ? '—' : `#${row.documentNumber}`}
@@ -339,7 +494,7 @@ function PaymentRow({ row }: { readonly row: PaymentRowView }) {
 function RowFallback({ paymentId }: { readonly paymentId: string | null }) {
   return (
     <tr className="border-b border-border-subtle last:border-b-0">
-      <td colSpan={7} className="py-2.5 text-sm text-foreground-muted">
+      <td colSpan={9} className="py-2.5 text-sm text-foreground-muted">
         This payment could not be displayed
         {paymentId === null ? '' : ` (${paymentId})`}. The rest of the table is unaffected, and the
         totals above still include it.

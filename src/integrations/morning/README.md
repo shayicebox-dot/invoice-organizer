@@ -33,6 +33,14 @@ answer what ICEBOX's real collections look like in Morning before any of them
 are allowed near a financial figure. Nothing downstream reads it: no dashboard
 figure, no metric, no P&L line.
 
+Each payment is also classified by where its sale came from, read from the
+document's descriptions against the phrases in `src/lib/config/sales-origin.ts`
+— a direct sale names the product, a Shopify-raised document names the order.
+That rule, not a payment type, is what identifies origin. Reading the
+descriptions is a deliberate and narrow exception to not walking nested
+structures: only fields named `description`, only from the document root and
+its income lines, and nothing from the client object.
+
 The parsing is deliberately shape-tolerant and asserts no meanings. `subType`,
 `appType`, `cardType` and `dealType` are carried through as codes, unrecognised
 scalar fields are carried through as observed extras, and a field holding a URL
