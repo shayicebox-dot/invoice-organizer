@@ -49,8 +49,9 @@ MVP dashboard over an empty data source. What exists:
   read-only payment diagnostic. It proves authentication works and shows what
   Morning recorded; no figure on any screen depends on it
 - Settings → Morning payment diagnostics: the credit-card and payment-app
-  payments Morning recorded over the selected period, with totals per type and
-  per currency, listed in Morning's own vocabulary. Inspection only — it is
+  payments Morning recorded over the selected period — one row per payment,
+  read from the nested `payment` array of each document the search matches —
+  with totals per type and per currency, in Morning's own vocabulary. Inspection only — it is
   what will decide how, or whether, collections are ever modelled
 
 What does **not** exist yet, and must not be invented ad hoc:
