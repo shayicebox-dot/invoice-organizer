@@ -102,7 +102,8 @@ npm run dev        # local dev server
 npm run build      # production build
 npm run typecheck  # tsc --noEmit
 npm run lint       # eslint
-npm run check      # typecheck + lint — run before every commit
+npm run test       # node --test, no framework — tests/**/*.test.ts
+npm run check      # typecheck + lint + test — run before every commit
 ```
 
 ---
@@ -419,6 +420,16 @@ beyond a hairline, no marketing flourish. This is an internal tool used daily.
 - Every interactive element is reachable by keyboard and has an accessible name.
 - Formatting (currency, dates, percentages) belongs in shared formatters, not
   inline in components — and formatting is never a substitute for calculation.
+- **A value from outside the system is never formatted unchecked.** Dates this
+  codebase produced are well-formed; a provider's are not, and
+  `Intl.DateTimeFormat` throws `RangeError: Invalid time value` on an empty or
+  malformed one — which in a client component unmounts the page rather than the
+  value. Provider dates go through `formatProviderDate`, which reports an
+  unreadable one as unavailable and never substitutes another date.
+- **A diagnostic contains its own failures.** Screens rendering values nobody
+  has inspected yet wrap them in `DiagnosticBoundary`, so one unexpected shape
+  degrades that row rather than taking down the page that was meant to reveal
+  it.
 
 ---
 
@@ -440,7 +451,7 @@ unreachable in the sidebar.
 
 ## 10. Working agreements
 
-- Run `npm run check` before committing. Both must pass.
+- Run `npm run check` before committing. All three must pass.
 - Do not add dependencies without a clear reason; prefer the platform.
 - Do not build the financial schema, VAT/tax logic or integrations until they
   are explicitly requested — an approximate implementation is worse than none in

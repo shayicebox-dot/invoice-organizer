@@ -10,7 +10,8 @@ import type {
   PaymentRowView,
   PaymentTypeTotalView,
 } from '@/components/settings/morning-payments-status';
-import { formatCount, formatMoney, formatShortDate } from '@/lib/utils/format';
+import { formatCount, formatMoney, formatProviderDate } from '@/lib/utils/format';
+import { DiagnosticBoundary } from '@/components/settings/diagnostic-boundary';
 import type { DateRange } from '@/core/period';
 
 /**
@@ -97,7 +98,9 @@ export function MorningPaymentsCard({ configured, range }: MorningPaymentsCardPr
 
         <div aria-live="polite" className="mt-4">
           {result === null ? null : result.status === 'read' ? (
-            <Results result={result} />
+            <DiagnosticBoundary fallback={<PanelFallback />}>
+              <Results result={result} />
+            </DiagnosticBoundary>
           ) : (
             <Failure
               message={result.message}
@@ -248,65 +251,113 @@ function PaymentTable({ rows }: { readonly rows: readonly PaymentRowView[] }) {
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr
+            <DiagnosticBoundary
               key={row.paymentId ?? `${row.documentId ?? 'row'}-${index}`}
-              className="border-b border-border-subtle align-top last:border-b-0 hover:bg-surface-muted"
+              fallback={<RowFallback paymentId={row.paymentId} />}
             >
-              <td className="numeric py-2.5 pr-4 whitespace-nowrap">
-                {row.date === null ? '—' : formatShortDate(row.date)}
-              </td>
-              <td className="numeric py-2.5 pr-4 text-right whitespace-nowrap">
-                {row.amount === null ? (
-                  // Shown muted and as-received: this is not a figure, it is
-                  // what Morning said where a figure was expected.
-                  <span
-                    className="text-foreground-subtle"
-                    title="Morning's value could not be read as an amount, so it is excluded from the totals"
-                  >
-                    {row.rawAmount ?? '—'}
-                  </span>
-                ) : (
-                  formatMoney(row.amount, { showDecimals: true })
-                )}
-              </td>
-              <td className="py-2.5 pr-4 whitespace-nowrap">
-                {row.currency ?? '—'}
-                {row.currencyFromDocument ? (
-                  <span
-                    className="text-foreground-subtle"
-                    title="The payment stated no currency, so the document's was used"
-                  >
-                    {' '}
-                    (doc)
-                  </span>
-                ) : null}
-              </td>
-              <td className="py-2.5 pr-4 whitespace-nowrap">
-                {row.typeCode === null
-                  ? '—'
-                  : `${row.typeCode}${
-                      TYPE_LABELS[row.typeCode] === undefined
-                        ? ''
-                        : ` · ${TYPE_LABELS[row.typeCode]}`
-                    }`}
-              </td>
-              <td className="py-2.5 pr-4 whitespace-nowrap">
-                {row.documentNumber === null ? '—' : `#${row.documentNumber}`}
-                {row.documentType === null ? null : (
-                  <span className="text-foreground-subtle"> · type {row.documentType}</span>
-                )}
-              </td>
-              <td className="py-2.5 pr-4">
-                <IdLine label="payment" value={row.paymentId} />
-                <IdLine label="document" value={row.documentId} />
-              </td>
-              <td className="py-2.5">
-                <Signals row={row} />
-              </td>
-            </tr>
+              <PaymentRow row={row} />
+            </DiagnosticBoundary>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function PaymentRow({ row }: { readonly row: PaymentRowView }) {
+  // Never formatted without checking: a provider's date can be absent, empty or
+  // malformed, and `Intl` throws `RangeError: Invalid time value` on all three.
+  const date = formatProviderDate(row.date);
+
+  return (
+    <tr className="border-b border-border-subtle align-top last:border-b-0 hover:bg-surface-muted">
+      <td className="numeric py-2.5 pr-4 whitespace-nowrap">
+        {date ?? (
+          <span
+            className="text-foreground-subtle"
+            title={
+              row.date === null
+                ? 'Morning recorded no date on this payment'
+                : "Morning's value could not be read as a date; it is listed under observed fields"
+            }
+          >
+            —
+          </span>
+        )}
+      </td>
+      <td className="numeric py-2.5 pr-4 text-right whitespace-nowrap">
+        {row.amount === null ? (
+          // Shown muted and as-received: this is not a figure, it is what
+          // Morning said where a figure was expected.
+          <span
+            className="text-foreground-subtle"
+            title="Morning's value could not be read as an amount, so it is excluded from the totals"
+          >
+            {row.rawAmount ?? '—'}
+          </span>
+        ) : (
+          formatMoney(row.amount, { showDecimals: true })
+        )}
+      </td>
+      <td className="py-2.5 pr-4 whitespace-nowrap">
+        {row.currency ?? '—'}
+        {row.currencyFromDocument ? (
+          <span
+            className="text-foreground-subtle"
+            title="The payment stated no currency, so the document's was used"
+          >
+            {' '}
+            (doc)
+          </span>
+        ) : null}
+      </td>
+      <td className="py-2.5 pr-4 whitespace-nowrap">
+        {row.typeCode === null
+          ? '—'
+          : `${row.typeCode}${
+              TYPE_LABELS[row.typeCode] === undefined ? '' : ` · ${TYPE_LABELS[row.typeCode]}`
+            }`}
+      </td>
+      <td className="py-2.5 pr-4 whitespace-nowrap">
+        {row.documentNumber === null ? '—' : `#${row.documentNumber}`}
+        {row.documentType === null ? null : (
+          <span className="text-foreground-subtle"> · type {row.documentType}</span>
+        )}
+      </td>
+      <td className="py-2.5 pr-4">
+        <IdLine label="payment" value={row.paymentId} />
+        <IdLine label="document" value={row.documentId} />
+      </td>
+      <td className="py-2.5">
+        <Signals row={row} showRawDate={date === null && row.date !== null} />
+      </td>
+    </tr>
+  );
+}
+
+/** Shown in place of one row that could not be rendered. */
+function RowFallback({ paymentId }: { readonly paymentId: string | null }) {
+  return (
+    <tr className="border-b border-border-subtle last:border-b-0">
+      <td colSpan={7} className="py-2.5 text-sm text-foreground-muted">
+        This payment could not be displayed
+        {paymentId === null ? '' : ` (${paymentId})`}. The rest of the table is unaffected, and the
+        totals above still include it.
+      </td>
+    </tr>
+  );
+}
+
+/** Shown in place of the whole result when something unexpected reaches it. */
+function PanelFallback() {
+  return (
+    <div className="rounded-lg border border-border-subtle bg-surface-muted p-4">
+      <p className="text-sm font-medium text-foreground">
+        Morning answered, but the result could not be displayed.
+      </p>
+      <p className="mt-1.5 text-sm text-foreground-muted">
+        Nothing else on this page is affected. The browser console has the details.
+      </p>
     </div>
   );
 }
@@ -315,7 +366,14 @@ function PaymentTable({ rows }: { readonly rows: readonly PaymentRowView[] }) {
  * Every field that might distinguish one kind of collection from another,
  * listed as `key value` without a reading being put on it.
  */
-function Signals({ row }: { readonly row: PaymentRowView }) {
+function Signals({
+  row,
+  showRawDate,
+}: {
+  readonly row: PaymentRowView;
+  /** True when the date could not be formatted, so the raw value is worth seeing. */
+  readonly showRawDate: boolean;
+}) {
   const coded: readonly (readonly [string, number | null])[] = [
     ['subType', row.subType],
     ['appType', row.appType],
@@ -325,12 +383,15 @@ function Signals({ row }: { readonly row: PaymentRowView }) {
 
   const present = coded.filter((entry): entry is readonly [string, number] => entry[1] !== null);
 
-  if (present.length === 0 && row.extras.length === 0 && row.urlFields.length === 0) {
+  if (!showRawDate && present.length === 0 && row.extras.length === 0 && row.urlFields.length === 0) {
     return <span className="text-foreground-subtle">—</span>;
   }
 
   return (
     <div className="flex flex-wrap gap-1.5">
+      {/* What Morning actually put where a date belongs, so an unreadable one
+          can be understood rather than only noticed. */}
+      {showRawDate ? <Chip label={`date ${JSON.stringify(row.date)}`} /> : null}
       {present.map(([key, value]) => (
         <Chip key={key} label={`${key} ${value}`} />
       ))}
