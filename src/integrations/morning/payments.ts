@@ -27,14 +27,23 @@ const SEARCH_PATH = 'documents/payments/search';
 export const PAYMENT_TYPE_CREDIT_CARD = 3;
 export const PAYMENT_TYPE_PAYMENT_APP = 10;
 
-const PAGE_SIZE = 100;
+/**
+ * Morning's documented search page size. Larger values are rejected outright —
+ * asking for 100 returns 400 `גודל תוצאות חיפוש לא תקין` ("invalid search
+ * result size"), which is how this was found. How many rows a screen shows is a
+ * separate question from how many rows a request may ask for.
+ */
+const PAGE_SIZE = 25;
+
+/** Morning numbers search pages from 1, not 0. */
+const FIRST_PAGE = 1;
 
 /**
  * A ceiling, not an expectation. Reached only by a period with more than
  * 5,000 matching payments — and when it is reached the caller says so, because
  * a total quietly computed over part of the answer is worse than no total.
  */
-const MAX_PAGES = 50;
+const MAX_PAGES = 200;
 
 /** Keys never carried out of the payload, matched case-insensitively. */
 const SENSITIVE_KEY = /email|phone|mobile|address|street|city|zip|country|taxid|holder|client|customer|recipient|contact|cardnum|chequenum|bankaccount|bankbranch|token|secret|password|auth|jwt|apikey|signature/i;
@@ -80,6 +89,8 @@ export type MorningPaymentsPage = {
   /** True when the sweep stopped at `MAX_PAGES` with more still to read. */
   readonly truncated: boolean;
   readonly pagesRead: number;
+  /** Total pages Morning reported, when it said. `null` when it did not. */
+  readonly pagesReported: number | null;
   /** The envelope key the items were found under, for the diagnostic to report. */
   readonly shape: string;
 };
@@ -87,6 +98,10 @@ export type MorningPaymentsPage = {
 /**
  * Every payment of the given types in the range, following pagination to the
  * end rather than assuming one page holds everything.
+ *
+ * Morning states how many pages the search has, so the sweep follows that count
+ * rather than inferring the end from a short page. When it does not say, a page
+ * holding fewer rows than were asked for is taken as the last one.
  */
 export async function fetchPaymentsInRange(
   range: DateRange,
@@ -96,34 +111,54 @@ export async function fetchPaymentsInRange(
   const collected: MorningPaymentRecord[] = [];
   let shape = 'unknown';
   let pagesRead = 0;
+  let pagesReported: number | null = null;
 
-  for (let page = 0; page < MAX_PAGES; page += 1) {
+  for (let page = FIRST_PAGE; page < FIRST_PAGE + MAX_PAGES; page += 1) {
     const payload = await morningSearch({
       path: SEARCH_PATH,
       config,
       body: {
         page,
         pageSize: PAGE_SIZE,
+        paymentTypes: [...paymentTypes],
         fromDate: range.start,
         toDate: range.end,
-        paymentTypes: [...paymentTypes],
+        sort: 'date:desc',
       },
     });
 
     const found = readItems(payload);
     pagesRead += 1;
     shape = found.shape;
+    pagesReported = readPageCount(payload) ?? pagesReported;
 
     for (const item of found.items) {
       if (isRecord(item)) collected.push(parsePayment(item));
     }
 
-    if (found.items.length < PAGE_SIZE) {
-      return { payments: collected, truncated: false, pagesRead, shape };
+    const lastPage =
+      pagesReported === null ? found.items.length < PAGE_SIZE : page >= pagesReported;
+
+    // A page that came back empty ends the sweep whatever the count said: a
+    // stated page total that never runs out would otherwise loop to the ceiling.
+    if (lastPage || found.items.length === 0) {
+      return { payments: collected, truncated: false, pagesRead, pagesReported, shape };
     }
   }
 
-  return { payments: collected, truncated: true, pagesRead, shape };
+  return { payments: collected, truncated: true, pagesRead, pagesReported, shape };
+}
+
+/** How many pages Morning says the search has. `null` when it does not say. */
+function readPageCount(payload: unknown): number | null {
+  if (!isRecord(payload)) return null;
+
+  for (const key of ['pages', 'totalPages', 'pageCount']) {
+    const value = readField(payload, key);
+    if (typeof value === 'number' && Number.isInteger(value) && value >= 0) return value;
+  }
+
+  return null;
 }
 
 /**

@@ -146,6 +146,7 @@ function requestError(status: number, payload: unknown): MorningError {
   // so the guidance says to check the subscription first.
   if (status === 403) return new MorningError('plan-restricted', summary, status);
 
+  if (status === 400) return new MorningError('invalid-request', summary, status);
   if (status === 404) return new MorningError('not-found', summary, status);
   if (status === 429) return new MorningError('throttled', summary, status);
   if (status >= 500) return new MorningError('server-error', summary, status);

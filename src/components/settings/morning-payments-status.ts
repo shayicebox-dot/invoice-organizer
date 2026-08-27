@@ -55,6 +55,8 @@ export type MorningPaymentsView =
       /** True when the page sweep stopped early, which makes the totals partial. */
       readonly sweepTruncated: boolean;
       readonly pagesRead: number;
+      /** Pages Morning said the search has. `null` when it did not say. */
+      readonly pagesReported: number | null;
       /** Which envelope key the results were found under. */
       readonly shape: string;
       readonly checkedAt: string;

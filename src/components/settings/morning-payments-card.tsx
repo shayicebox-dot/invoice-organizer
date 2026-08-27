@@ -86,8 +86,8 @@ export function MorningPaymentsCard({ configured, range }: MorningPaymentsCardPr
           </button>
 
           <span className="text-xs text-foreground-subtle">
-            Searches payment types 3 and 10 over the dates selected above. Nothing is written, and
-            no figure on any screen changes.
+            Searches payment types 3 and 10 over the dates selected above, 25 results a page until
+            every page is read. Nothing is written, and no figure on any screen changes.
           </span>
         </div>
 
@@ -117,7 +117,7 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
         <Tile
           label="Matching payments"
           value={formatCount(result.matchedCount)}
-          detail={`${formatCount(result.pagesRead)} ${result.pagesRead === 1 ? 'page' : 'pages'} read`}
+          detail={pagesDetail(result.pagesRead, result.pagesReported)}
         />
       </div>
 
@@ -160,6 +160,15 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
       </p>
     </div>
   );
+}
+
+/** "3 of 3 pages read" when Morning stated a total; "3 pages read" when not. */
+function pagesDetail(pagesRead: number, pagesReported: number | null): string {
+  const unit = pagesReported === 1 || (pagesReported === null && pagesRead === 1) ? 'page' : 'pages';
+
+  return pagesReported === null
+    ? `${formatCount(pagesRead)} ${unit} read`
+    : `${formatCount(pagesRead)} of ${formatCount(pagesReported)} ${unit} read`;
 }
 
 function TotalTile({ total }: { readonly total: PaymentTypeTotalView }) {
@@ -336,7 +345,12 @@ function Failure({
     <div className="rounded-lg border border-border-subtle bg-surface-muted p-4">
       <p className="flex items-start gap-2 text-sm font-medium text-foreground">
         <AlertCircle className="mt-0.5 size-4 shrink-0 text-negative" aria-hidden="true" />
-        {message}
+        {/* Morning answers in Hebrew. `dir="auto"` lets the message lay itself
+            out by its own first strong character, and isolation stops it
+            reordering anything around it. */}
+        <span dir="auto" className="[unicode-bidi:isolate]">
+          {message}
+        </span>
       </p>
       <p className="mt-1.5 pl-6 text-sm text-foreground-muted">{guidance}</p>
       {httpStatus === null ? null : (

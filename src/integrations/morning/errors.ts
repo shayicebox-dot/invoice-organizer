@@ -13,6 +13,7 @@ export type MorningFailureReason =
   | 'forbidden'
   | 'plan-restricted'
   | 'not-found'
+  | 'invalid-request'
   | 'throttled'
   | 'api-error'
   | 'invalid-response'
@@ -54,6 +55,11 @@ export const MORNING_FAILURE_GUIDANCE: Readonly<Record<MorningFailureReason, str
   'plan-restricted':
     'Morning refused the request. API access requires the Best plan or higher — check the subscription in the Morning dashboard.',
   'not-found': 'Morning does not recognise that endpoint.',
+  // Morning validates search parameters and says which one it rejected. That
+  // message is the useful part, so the guidance points at it rather than
+  // talking over it — and says plainly that the credentials are not at fault.
+  'invalid-request':
+    'Morning rejected something in the request itself, not the credentials. Its own explanation is above.',
   throttled: 'Morning is rate limiting these requests. Wait a moment and try again.',
   'api-error': 'Morning returned an error for this request.',
   'invalid-response': 'Morning returned a response in an unexpected shape.',

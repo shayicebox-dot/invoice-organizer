@@ -73,6 +73,7 @@ export async function getMorningPaymentDiagnostics(
       rowsTruncated: page.payments.length > MAX_ROWS_SHOWN,
       sweepTruncated: page.truncated,
       pagesRead: page.pagesRead,
+      pagesReported: page.pagesReported,
       shape: page.shape,
       checkedAt,
     };

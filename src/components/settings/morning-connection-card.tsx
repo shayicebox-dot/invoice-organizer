@@ -144,7 +144,10 @@ function FailureDetails({
     <div className="rounded-lg border border-border-subtle bg-surface-muted p-4">
       <p className="flex items-start gap-2 text-sm font-medium text-foreground">
         <AlertCircle className="mt-0.5 size-4 shrink-0 text-negative" aria-hidden="true" />
-        {message}
+        {/* Morning answers in Hebrew; let the message lay itself out. */}
+        <span dir="auto" className="[unicode-bidi:isolate]">
+          {message}
+        </span>
       </p>
       <p className="mt-1.5 pl-6 text-sm text-foreground-muted">{guidance}</p>
       {/* The status alone, with no response body: enough to diagnose, nothing
