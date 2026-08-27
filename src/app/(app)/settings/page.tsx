@@ -6,6 +6,10 @@ import { Badge } from '@/components/ui/badge';
 import { ShopifyConnectionCard } from '@/components/settings/shopify-connection-card';
 import { MetaConnectionCard } from '@/components/settings/meta-connection-card';
 import { MorningConnectionCard } from '@/components/settings/morning-connection-card';
+import { MorningPaymentsCard } from '@/components/settings/morning-payments-card';
+import { DateRangePicker } from '@/components/dashboard/date-range-picker';
+import { PeriodNotice } from '@/components/dashboard/period-notice';
+import { reportingPeriod } from '@/lib/utils/reporting-period';
 import { ProductMappingCard } from '@/components/settings/product-mapping-card';
 import { getProductsPageData } from '@/data/sales-source';
 import { readBoxMapping } from '@/data/box-mapping-store';
@@ -30,8 +34,15 @@ export const metadata: Metadata = { title: 'Settings' };
  */
 export const dynamic = 'force-dynamic';
 
+type SettingsPageProps = {
+  readonly searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
 /** Settings is rendered on the server, so it can read configuration directly. */
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: SettingsPageProps) {
+  // The payment diagnostic reads a period, so this screen resolves dates the
+  // same way every other one does rather than inventing its own.
+  const { range, preset, today, adjustment } = reportingPeriod(await searchParams);
   // A recent window, fixed rather than picked: this table is for checking the
   // cost model's foundation, not for reporting a period.
   const mappingRange = resolvePreset('last30', todayInBusinessTimeZone());
@@ -70,6 +81,17 @@ export default async function SettingsPage() {
         <ShopifyConnectionCard configured={shopifyConfigured} />
         <MetaConnectionCard configured={metaConfigured} />
         <MorningConnectionCard configured={morningConfigured} />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-medium tracking-tight text-foreground">
+            Morning payment diagnostics
+          </h2>
+          <DateRangePicker range={range} preset={preset} today={today} basePath="/settings" />
+        </div>
+        <PeriodNotice adjustment={adjustment} />
+        <MorningPaymentsCard configured={morningConfigured} range={range} />
       </section>
 
       <section className="flex flex-col gap-3">

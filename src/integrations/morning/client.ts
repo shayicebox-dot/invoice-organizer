@@ -8,14 +8,24 @@ import { isRecord, readField } from '@/integrations/shopify/json';
 /**
  * Server-side Morning (Green Invoice) API client.
  *
- * Read-only by design: there is no POST, PUT or DELETE here, so no code path in
- * ICEBOX OS can create, alter or cancel a document in the owner's accounting
- * system. `server-only` makes importing this from a client component a build
- * error, and the token travels in the `Authorization` header rather than the
- * URL, because URLs end up in server logs, proxies and error reports.
+ * Read-only by design. `server-only` makes importing this from a client
+ * component a build error, and the token travels in the `Authorization` header
+ * rather than the URL, because URLs end up in server logs, proxies and error
+ * reports.
+ *
+ * Morning expresses some reads as POST — a search takes a filter body. That
+ * would otherwise put a method capable of creating documents into this module,
+ * so `morningSearch` refuses any path not in `SEARCH_PATHS` below. The
+ * invariant that matters survives: there is no reachable code path in ICEBOX OS
+ * that can create, alter or cancel a document, because the only POST target
+ * this client will accept is a search endpoint. Adding a path here is the
+ * deliberate act of widening that, and should be treated as one.
  */
 
 const REQUEST_TIMEOUT_MS = 20_000;
+
+/** The only paths `morningSearch` will POST to. Reads, despite the verb. */
+const SEARCH_PATHS: readonly string[] = ['documents/payments/search'];
 
 export type MorningRequest = {
   /** Path after the version segment, e.g. `documents/info?type=320`. */
@@ -45,18 +55,59 @@ export async function morningGet(request: MorningRequest): Promise<unknown> {
   }
 }
 
-async function executeOnce(config: MorningConfig, path: string): Promise<unknown> {
+export type MorningSearchRequest = {
+  /** Must be one of `SEARCH_PATHS`. Anything else is refused before any call. */
+  readonly path: string;
+  /** The filter body. Serialised as JSON; never contains a credential. */
+  readonly body: Readonly<Record<string, unknown>>;
+  readonly config?: MorningConfig;
+};
+
+/**
+ * Execute one authenticated search POST and return the parsed body.
+ *
+ * Refuses any path that is not a known search endpoint, so this cannot become
+ * a general-purpose write. Retries a stale token once, exactly as `morningGet`
+ * does.
+ */
+export async function morningSearch(request: MorningSearchRequest): Promise<unknown> {
+  if (!SEARCH_PATHS.includes(request.path)) {
+    throw new MorningError(
+      'api-error',
+      `Refused to POST to "${request.path}": it is not a known Morning search endpoint.`,
+    );
+  }
+
+  const config = request.config ?? getMorningConfig();
+
+  try {
+    return await executeOnce(config, request.path, request.body);
+  } catch (error) {
+    if (error instanceof MorningError && error.reason === 'unauthorized') {
+      invalidateMorningToken(config);
+      return await executeOnce(config, request.path, request.body);
+    }
+    throw error;
+  }
+}
+
+async function executeOnce(
+  config: MorningConfig,
+  path: string,
+  searchBody?: Readonly<Record<string, unknown>>,
+): Promise<unknown> {
   const token = await getMorningToken(config);
   let response: Response;
 
   try {
     response = await fetch(`${config.baseUrl}/${path}`, {
-      method: 'GET',
+      method: searchBody === undefined ? 'GET' : 'POST',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
+      ...(searchBody === undefined ? {} : { body: JSON.stringify(searchBody) }),
       cache: 'no-store',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
