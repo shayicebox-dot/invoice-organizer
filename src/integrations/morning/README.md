@@ -85,6 +85,11 @@ evidence rather than guessing at the answer.
   for more is refused with 400 `גודל תוצאות חיפוש לא תקין` ("invalid search
   result size"). How many rows a screen shows is a separate question from how
   many rows one request may ask for.
+- **A payment's date can be absent, empty or malformed**, and real ones are.
+  Formatting one without checking throws `RangeError: Invalid time value`,
+  which in a client component unmounts the page. Provider dates go through
+  `formatProviderDate`, and the diagnostic shows the raw value when it cannot
+  be read.
 - **`items` holds documents, not payments.** A document can carry several
   payments, and can carry payments of types the search did not ask for, because
   the filter matches the document. Both are counted and reported.

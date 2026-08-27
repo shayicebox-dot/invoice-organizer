@@ -1,6 +1,7 @@
 import type { Money } from '@/core/money';
 import type { Metric, MetricValue } from '@/core/metrics/types';
 import { BUSINESS_CONFIG } from '@/lib/config/business';
+import { formatExternalDate } from '@/lib/utils/safe-date';
 
 /**
  * Presentation-only formatting. Formatting is the last step after a value has
@@ -79,6 +80,23 @@ export function formatShortDate(isoDate: string): string {
     month: 'short',
     timeZone: 'UTC',
   }).format(new Date(`${isoDate}T00:00:00Z`));
+}
+
+/**
+ * A date that came from outside this system — "4 Aug", or `null` when the value
+ * cannot be read as a date at all.
+ *
+ * `formatShortDate` above assumes a well-formed `YYYY-MM-DD` because everything
+ * that reaches it is one this codebase produced. A provider's date carries no
+ * such promise: empty, malformed or absent values arrive, and formatting one
+ * throws `RangeError: Invalid time value`. Callers showing provider data must
+ * use this and decide for themselves what an unreadable date looks like.
+ */
+export function formatProviderDate(value: unknown): string | null {
+  return formatExternalDate(value, {
+    locale: BUSINESS_CONFIG.locale,
+    timeZone: BUSINESS_CONFIG.timeZone,
+  });
 }
 
 export function formatDateRange(range: { readonly start: string; readonly end: string }): string {
