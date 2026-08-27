@@ -20,6 +20,10 @@ import type { DateRange } from '@/core/period';
  * before any of them are allowed near a financial figure. Nothing it shows is
  * revenue, and nothing downstream reads it.
  *
+ * One row per payment, not per document. Morning's search matches documents and
+ * nests the payments inside them, so a single invoice-receipt can carry several
+ * payments; the document appears only as context beside each of them.
+ *
  * Morning's payment-type codes are shown as codes with Morning's own label for
  * the code. What distinguishes a Bit payment from a hosted card link from a
  * manually recorded one is not asserted anywhere here: the observed fields are
@@ -86,8 +90,8 @@ export function MorningPaymentsCard({ configured, range }: MorningPaymentsCardPr
           </button>
 
           <span className="text-xs text-foreground-subtle">
-            Searches payment types 3 and 10 over the dates selected above, 25 results a page until
-            every page is read. Nothing is written, and no figure on any screen changes.
+            Searches payment types 3 and 10 over the dates selected above, 25 documents a page
+            until every page is read, and lists the payments nested inside them. Nothing is written, and no figure on any screen changes.
           </span>
         </div>
 
@@ -117,7 +121,9 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
         <Tile
           label="Matching payments"
           value={formatCount(result.matchedCount)}
-          detail={pagesDetail(result.pagesRead, result.pagesReported)}
+          detail={`in ${formatCount(result.documentCount)} ${
+            result.documentCount === 1 ? 'document' : 'documents'
+          } · ${pagesDetail(result.pagesRead, result.pagesReported)}`}
         />
       </div>
 
@@ -128,11 +134,24 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
         </Notice>
       ) : null}
 
+      {result.documentsWithoutPayments > 0 ? (
+        <Notice>
+          {result.documentsWithoutPayments === 1
+            ? 'One matched document carried no readable payment list, so nothing from it is counted.'
+            : `${formatCount(result.documentsWithoutPayments)} matched documents carried no readable payment list, so nothing from them is counted.`}{' '}
+          Worth looking at: it would be the first sign that Morning nests payments under a different
+          name than this reads.
+        </Notice>
+      ) : null}
+
       {result.unexpectedTypeCount > 0 ? (
         <Notice>
-          {formatCount(result.unexpectedTypeCount)} payments came back with a type other than 3 or
-          10, though only those two were asked for. They are listed below and are counted in
-          &ldquo;matching payments&rdquo;, but not in either total.
+          {result.unexpectedTypeCount === 1
+            ? 'One of these payments has a type other than 3 or 10.'
+            : `${formatCount(result.unexpectedTypeCount)} of these payments have a type other than 3 or 10.`}{' '}
+          The search matches whole documents, so a document containing a card payment can carry
+          other payments beside it. Each is listed below and counted as a payment, but is in neither
+          total.
         </Notice>
       ) : null}
 
@@ -153,7 +172,10 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
 
       <p className="text-xs leading-relaxed text-foreground-subtle">
         Read from the <span className="text-foreground-muted">{result.shape}</span> field of
-        Morning&rsquo;s answer. Payment type codes are Morning&rsquo;s own. What
+        Morning&rsquo;s answer, then from each document&rsquo;s nested{' '}
+        <span className="text-foreground-muted">{result.paymentKey ?? 'payment'}</span> array. Every
+        figure comes from a payment entry; the document supplies only its id, number and type.
+        Payment type codes are Morning&rsquo;s own. What
         <span className="text-foreground-muted"> subType</span>,
         <span className="text-foreground-muted"> appType</span> and the observed fields mean for
         this account is not interpreted here — that is the question this panel exists to answer.
@@ -215,13 +237,13 @@ function PaymentTable({ rows }: { readonly rows: readonly PaymentRowView[] }) {
       <table className="w-full min-w-[60rem] border-collapse text-sm">
         <thead>
           <tr className="border-b border-border-subtle text-left">
-            <Th align="left">Date</Th>
+            <Th align="left">Payment date</Th>
             <Th>Amount</Th>
             <Th align="left">Currency</Th>
-            <Th align="left">Type</Th>
-            <Th align="left">Document</Th>
+            <Th align="left">Payment type</Th>
+            <Th align="left">Parent document</Th>
             <Th align="left">Morning IDs</Th>
-            <Th align="left">Observed fields</Th>
+            <Th align="left">Observed payment fields</Th>
           </tr>
         </thead>
         <tbody>
@@ -247,7 +269,18 @@ function PaymentTable({ rows }: { readonly rows: readonly PaymentRowView[] }) {
                   formatMoney(row.amount, { showDecimals: true })
                 )}
               </td>
-              <td className="py-2.5 pr-4">{row.currency ?? '—'}</td>
+              <td className="py-2.5 pr-4 whitespace-nowrap">
+                {row.currency ?? '—'}
+                {row.currencyFromDocument ? (
+                  <span
+                    className="text-foreground-subtle"
+                    title="The payment stated no currency, so the document's was used"
+                  >
+                    {' '}
+                    (doc)
+                  </span>
+                ) : null}
+              </td>
               <td className="py-2.5 pr-4 whitespace-nowrap">
                 {row.typeCode === null
                   ? '—'

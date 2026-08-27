@@ -12,6 +12,14 @@ import type { DateRange } from '@/core/period';
  * ICEBOX's real collections actually look like in Morning? Nothing here feeds a
  * figure. No revenue, cost or profit anywhere in the app depends on it.
  *
+ * The search returns **documents**, not payments: each entry in `items` is the
+ * document that contains the matching payment(s), and the payments themselves
+ * are in its nested `payment` array. Reading an item as though it were a
+ * payment is how the first version of this reported one row of type 320 — the
+ * document type for a tax invoice-receipt — for ₪0. Every figure here therefore
+ * comes from a nested payment entry, and the document supplies only context:
+ * its id, its number and its type.
+ *
  * The parsing is deliberately shape-tolerant. The documented payment object
  * covers `type`, `subType`, `appType`, `cardType`, `dealType` and friends, but
  * which of them Morning actually populates for this account is exactly what is
@@ -58,12 +66,26 @@ export type ObservedField = {
   readonly value: string;
 };
 
+/**
+ * One nested payment, with its parent document for context.
+ *
+ * Everything above `documentId` comes from the payment entry. Everything from
+ * `documentId` down comes from the document that contains it, and is never
+ * read as a property of the payment — the document's own `type` is a document
+ * type, not a payment type.
+ */
 export type MorningPaymentRecord = {
-  /** The payment date exactly as Morning states it. */
+  /** The payment's own date, from the payment entry. */
   readonly date: string | null;
   /** The amount as text, converted to `Money` a layer up so parsing can fail loudly. */
   readonly amount: string | null;
   readonly currency: string | null;
+  /**
+   * True when the payment stated no currency and the document's was used.
+   * Flagged because currency decides which total a row joins, and a borrowed
+   * one is an inference rather than something Morning said about this payment.
+   */
+  readonly currencyFromDocument: boolean;
   /** Morning's payment-type code. Not translated into a payment brand here. */
   readonly type: number | null;
   readonly subType: number | null;
@@ -71,6 +93,7 @@ export type MorningPaymentRecord = {
   readonly cardType: number | null;
   readonly dealType: number | null;
   readonly paymentId: string | null;
+  /** Parent document context. Never a payment's own property. */
   readonly documentId: string | null;
   readonly documentNumber: string | null;
   readonly documentType: number | null;
@@ -85,7 +108,17 @@ export type MorningPaymentRecord = {
 };
 
 export type MorningPaymentsPage = {
+  /** One entry per nested payment, not per document. */
   readonly payments: readonly MorningPaymentRecord[];
+  /** Documents the search matched. Always at most the number of payments. */
+  readonly documentCount: number;
+  /**
+   * Documents carrying no readable payment array. Reported rather than ignored:
+   * it would be the first sign that the nested key is not what it looks like.
+   */
+  readonly documentsWithoutPayments: number;
+  /** Which nested key the payments were found under, for the diagnostic to state. */
+  readonly paymentKey: string | null;
   /** True when the sweep stopped at `MAX_PAGES` with more still to read. */
   readonly truncated: boolean;
   readonly pagesRead: number;
@@ -112,6 +145,9 @@ export async function fetchPaymentsInRange(
   let shape = 'unknown';
   let pagesRead = 0;
   let pagesReported: number | null = null;
+  let documentCount = 0;
+  let documentsWithoutPayments = 0;
+  let paymentKey: string | null = null;
 
   for (let page = FIRST_PAGE; page < FIRST_PAGE + MAX_PAGES; page += 1) {
     const payload = await morningSearch({
@@ -133,7 +169,19 @@ export async function fetchPaymentsInRange(
     pagesReported = readPageCount(payload) ?? pagesReported;
 
     for (const item of found.items) {
-      if (isRecord(item)) collected.push(parsePayment(item));
+      if (!isRecord(item)) continue;
+
+      documentCount += 1;
+      const nested = readNestedPayments(item);
+
+      if (nested.entries.length === 0) documentsWithoutPayments += 1;
+      else paymentKey = nested.key ?? paymentKey;
+
+      const context = readDocumentContext(item);
+
+      for (const entry of nested.entries) {
+        collected.push(parsePayment(entry, context));
+      }
     }
 
     const lastPage =
@@ -142,11 +190,29 @@ export async function fetchPaymentsInRange(
     // A page that came back empty ends the sweep whatever the count said: a
     // stated page total that never runs out would otherwise loop to the ceiling.
     if (lastPage || found.items.length === 0) {
-      return { payments: collected, truncated: false, pagesRead, pagesReported, shape };
+      return {
+        payments: collected,
+        documentCount,
+        documentsWithoutPayments,
+        paymentKey,
+        truncated: false,
+        pagesRead,
+        pagesReported,
+        shape,
+      };
     }
   }
 
-  return { payments: collected, truncated: true, pagesRead, pagesReported, shape };
+  return {
+    payments: collected,
+    documentCount,
+    documentsWithoutPayments,
+    paymentKey,
+    truncated: true,
+    pagesRead,
+    pagesReported,
+    shape,
+  };
 }
 
 /** How many pages Morning says the search has. `null` when it does not say. */
@@ -182,49 +248,90 @@ function readItems(payload: unknown): { items: readonly unknown[]; shape: string
   return { items: [], shape: 'unrecognised' };
 }
 
-function parsePayment(item: Record<string, unknown>): MorningPaymentRecord {
+/** Document context: the parent's own identifiers, never a payment's. */
+type DocumentContext = {
+  readonly documentId: string | null;
+  readonly documentNumber: string | null;
+  readonly documentType: number | null;
+  readonly currency: string | null;
+};
+
+/**
+ * The payments nested inside one document.
+ *
+ * Morning documents the key as `payment`; `payments` is accepted as well and
+ * the key actually used is reported, so a rename upstream shows up as a stated
+ * fact rather than as an empty table nobody can explain.
+ */
+function readNestedPayments(document: Record<string, unknown>): {
+  entries: readonly Record<string, unknown>[];
+  key: string | null;
+} {
+  for (const key of ['payment', 'payments']) {
+    const value = readField(document, key);
+    if (!Array.isArray(value)) continue;
+
+    const entries = value.filter(isRecord);
+    if (entries.length > 0 || value.length === 0) return { entries, key };
+  }
+
+  return { entries: [], key: null };
+}
+
+function readDocumentContext(document: Record<string, unknown>): DocumentContext {
+  return {
+    documentId: readText(document, ['id', 'documentId']),
+    documentNumber: readText(document, ['number', 'documentNumber']),
+    documentType: readInteger(document, ['type', 'documentType']),
+    currency: readText(document, ['currency']),
+  };
+}
+
+/**
+ * One nested payment entry, read on its own terms.
+ *
+ * Every figure comes from the payment. The document contributes identifiers,
+ * and its currency only when the payment states none — flagged when it does,
+ * because currency decides which total the row joins.
+ */
+function parsePayment(
+  entry: Record<string, unknown>,
+  context: DocumentContext,
+): MorningPaymentRecord {
   const recognised = new Set<string>();
 
   const text = (...keys: readonly string[]): string | null => {
-    for (const key of keys) {
-      recognised.add(key);
-      const value = readField(item, key);
-      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
-      if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-    }
-    return null;
+    keys.forEach((key) => recognised.add(key));
+    return readText(entry, keys);
   };
 
   const integer = (...keys: readonly string[]): number | null => {
-    for (const key of keys) {
-      recognised.add(key);
-      const value = readField(item, key);
-      if (typeof value === 'number' && Number.isFinite(value)) return value;
-    }
-    return null;
+    keys.forEach((key) => recognised.add(key));
+    return readInteger(entry, keys);
   };
 
-  const record: MorningPaymentRecord = {
+  const ownCurrency = text('currency');
+
+  const record = {
     date: text('date', 'paymentDate'),
     amount: text('price', 'amount', 'sum'),
-    currency: text('currency'),
+    currency: ownCurrency ?? context.currency,
+    currencyFromDocument: ownCurrency === null && context.currency !== null,
     type: integer('type', 'paymentType'),
     subType: integer('subType'),
     appType: integer('appType'),
     cardType: integer('cardType'),
     dealType: integer('dealType'),
     paymentId: text('id', 'paymentId'),
-    documentId: text('documentId', 'docId'),
-    documentNumber: text('documentNumber', 'number', 'docNumber'),
-    documentType: integer('documentType', 'docType'),
-    urlFields: [],
-    extras: [],
-  };
+    documentId: context.documentId,
+    documentNumber: context.documentNumber,
+    documentType: context.documentType,
+  } as const;
 
   const urlFields: string[] = [];
   const extras: ObservedField[] = [];
 
-  for (const [key, value] of Object.entries(item)) {
+  for (const [key, value] of Object.entries(entry)) {
     if (recognised.has(key)) continue;
     if (SENSITIVE_KEY.test(key)) continue;
 
@@ -248,6 +355,23 @@ function parsePayment(item: Record<string, unknown>): MorningPaymentRecord {
   }
 
   return { ...record, urlFields, extras };
+}
+
+function readText(source: Record<string, unknown>, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = readField(source, key);
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  }
+  return null;
+}
+
+function readInteger(source: Record<string, unknown>, keys: readonly string[]): number | null {
+  for (const key of keys) {
+    const value = readField(source, key);
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return null;
 }
 
 function truncate(value: string): string {

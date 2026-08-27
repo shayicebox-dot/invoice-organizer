@@ -22,7 +22,13 @@ treatment.
 **Reads recorded payments, for inspection.** `fetchPaymentsInRange` searches
 `POST /documents/payments/search` for the credit-card (3) and payment-app (10)
 payment types over a date range, 25 rows a page — Morning's documented size —
-following the page count it returns to the end. It exists to
+following the page count it returns to the end.
+
+The search returns **documents**, not payments: each entry in `items` is the
+document containing the matching payment(s), with the payments in its nested
+`payment` array. Every figure comes from a nested entry; the document supplies
+only its id, number and type. Reading an item as though it were a payment is
+how the first version reported one row of type 320 — a document type — for ₪0. It exists to
 answer what ICEBOX's real collections look like in Morning before any of them
 are allowed near a financial figure. Nothing downstream reads it: no dashboard
 figure, no metric, no P&L line.
@@ -79,6 +85,9 @@ evidence rather than guessing at the answer.
   for more is refused with 400 `גודל תוצאות חיפוש לא תקין` ("invalid search
   result size"). How many rows a screen shows is a separate question from how
   many rows one request may ask for.
+- **`items` holds documents, not payments.** A document can carry several
+  payments, and can carry payments of types the search did not ask for, because
+  the filter matches the document. Both are counted and reported.
 - **Search pages are numbered from 1**, and the answer states how many pages
   there are. Asking for page 0 is a validation error.
 - **`GET /users/me` does not exist.** It appears in older write-ups of this API

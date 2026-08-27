@@ -25,6 +25,10 @@ import type {
  * Morning payment diagnostics: what the accounting system says was collected
  * in a period, in its own vocabulary.
  *
+ * One row per payment, not per document. Morning's search matches documents and
+ * returns each with its payments nested inside, so a single invoice-receipt can
+ * carry several payments and every figure here counts the nested entries.
+ *
  * Read-only, and deliberately isolated. Nothing here is imported by the
  * dashboard, by any metric, or by the profitability engine — a payment recorded
  * in a period is not a sale made in one, and until that difference is modelled
@@ -68,6 +72,9 @@ export async function getMorningPaymentDiagnostics(
       range: { start: range.start, end: range.end },
       totals: summary.byType,
       matchedCount: summary.totalCount,
+      documentCount: page.documentCount,
+      documentsWithoutPayments: page.documentsWithoutPayments,
+      paymentKey: page.paymentKey,
       unexpectedTypeCount: summary.unexpectedTypeCount,
       rows: page.payments.slice(0, MAX_ROWS_SHOWN).map(toRow),
       rowsTruncated: page.payments.length > MAX_ROWS_SHOWN,
@@ -101,6 +108,7 @@ function toRow(payment: MorningPaymentRecord): PaymentRowView {
     amount: priceRow(payment),
     rawAmount: payment.amount,
     currency: payment.currency,
+    currencyFromDocument: payment.currencyFromDocument,
     typeCode: payment.type,
     subType: payment.subType,
     appType: payment.appType,
