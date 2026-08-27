@@ -6,7 +6,9 @@ connecting Morning changes neither.
 
 ## What it does today
 
-Proves that ICEBOX OS can authenticate. `testMorningConnection()` mints a token
+Two read-only things, neither of which feeds a figure.
+
+**Proves that ICEBOX OS can authenticate.** `testMorningConnection()` mints a token
 from the API key pair and makes one read-only call to
 `GET /documents/info?type=320`, which reports the document settings for one
 document type. Nothing in the answer is read as a figure: it is used purely as
@@ -17,13 +19,28 @@ and no client record is read, and nothing is written.
 probe asks about and nothing else — it classifies no revenue and applies no VAT
 treatment.
 
+**Reads recorded payments, for inspection.** `fetchPaymentsInRange` searches
+`POST /documents/payments/search` for the credit-card (3) and payment-app (10)
+payment types over a date range, following pagination to the end. It exists to
+answer what ICEBOX's real collections look like in Morning before any of them
+are allowed near a financial figure. Nothing downstream reads it: no dashboard
+figure, no metric, no P&L line.
+
+The parsing is deliberately shape-tolerant and asserts no meanings. `subType`,
+`appType`, `cardType` and `dealType` are carried through as codes, unrecognised
+scalar fields are carried through as observed extras, and a field holding a URL
+is reported by name only. Which of them distinguishes Bit from a hosted card
+link from a manually recorded payment is the open question — the panel shows the
+evidence rather than guessing at the answer.
+
 ## Files
 
 | File            | Responsibility                                              |
 | --------------- | ----------------------------------------------------------- |
 | `config.ts`     | Resolves and validates credentials; picks a fixed API host  |
 | `token.ts`      | Exchanges the key pair for a JWT, caches it, refreshes it   |
-| `client.ts`     | Authenticated **GET only**, typed errors, one 401 retry     |
+| `client.ts`     | Authenticated GET, allow-listed search POST, typed errors   |
+| `payments.ts`   | Paginated payment reads, sensitive fields dropped           |
 | `connection.ts` | The connection test and its result type                     |
 | `errors.ts`     | `MorningError`, failure reasons, UI-safe guidance           |
 
@@ -38,8 +55,16 @@ treatment.
   or a raw response body.
 - Both API hosts are fixed constants. `MORNING_ENVIRONMENT` selects between
   `production` and `sandbox`; no configured value can choose an arbitrary host.
-- Read-only: the client exposes no method other than GET, so no code path here
-  can create, alter or cancel a document in the owner's accounting system.
+- Read-only. The client exposes a GET, and a POST that refuses any path outside
+  `SEARCH_PATHS` — Morning expresses a search as POST, and that is not a reason
+  to put a general-purpose write into the codebase. No code path here can
+  create, alter or cancel a document in the owner's accounting system; widening
+  that list is the deliberate act of changing it.
+- Payment reads drop anything that identifies a customer (name, email, phone,
+  address, tax id, card or cheque number, bank details) or looks like a
+  credential, before the data leaves this layer. Nested objects and arrays are
+  not walked: flattening unknown structures is how customer data reaches a
+  screen by accident.
 
 ## Things worth knowing
 

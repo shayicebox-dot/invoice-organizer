@@ -45,9 +45,13 @@ MVP dashboard over an empty data source. What exists:
 - Meta is the live source for ad spend, and feeds Marketing spend, ROAS and CPA
   on the dashboard plus the whole Marketing screen
 - Morning (Green Invoice) integration in `src/integrations/morning` — API key
-  pair exchanged for a short-lived JWT, and a read-only connection test. It
-  proves authentication works and nothing more: no figure on any screen depends
-  on it
+  pair exchanged for a short-lived JWT, a read-only connection test, and a
+  read-only payment diagnostic. It proves authentication works and shows what
+  Morning recorded; no figure on any screen depends on it
+- Settings → Morning payment diagnostics: the credit-card and payment-app
+  payments Morning recorded over the selected period, with totals per type and
+  per currency, listed in Morning's own vocabulary. Inspection only — it is
+  what will decide how, or whether, collections are ever modelled
 
 What does **not** exist yet, and must not be invented ad hoc:
 
@@ -56,8 +60,13 @@ What does **not** exist yet, and must not be invented ad hoc:
 - Deductible input VAT on expenses — output VAT is separated, input VAT is not
 - Payment processing measured separately, rather than inside the 5% rate
 - Google Ads and payment integrations
-- Any use of Morning beyond proving the connection — no documents are read, and
-  revenue still comes from Shopify alone
+- Any use of Morning beyond proving the connection and inspecting payments —
+  revenue still comes from Shopify alone, and no Morning figure reaches the
+  dashboard, the P&L or any metric
+- What distinguishes one kind of Morning collection from another. Which of
+  `subType`, `appType` and the rest identifies Bit, a hosted card link or a
+  manually recorded payment is an open question, and the diagnostic panel
+  reports those fields rather than asserting a meaning for them
 - Storage of imported Shopify orders (each page load reads Shopify live)
 - Any real or sample financial data
 
@@ -146,12 +155,13 @@ src/
 │   ├── dashboard-source.ts     dashboard totals, daily series, recent orders
 │   ├── sales-source.ts         order-level and product-level reads
 │   ├── marketing-source.ts     Meta spend and campaign performance
+│   ├── morning-payments-source.ts  Morning payment diagnostics — feeds nothing
 │   ├── profitability-source.ts assembles the P&L from Shopify, Meta and config
 │   └── box-mapping-store.ts    variant → box mapping, stored in the database
 ├── integrations/               external systems — server only
 │   ├── shopify/                Admin GraphQL client, connection test, orders
 │   ├── meta/                   Marketing API client, connection test, insights
-│   └── morning/                Green Invoice auth and connection test only
+│   └── morning/                Green Invoice auth, connection test, payment reads
 ├── lib/
 │   ├── auth/session.ts         signed session token (Edge + Node safe)
 │   ├── auth/actions.ts         sign in and sign out (server actions)
@@ -359,10 +369,14 @@ deliberately — never hardcoded to today's values.
   token as a query parameter; ICEBOX sends it as `Authorization: Bearer`
   instead, because query strings reach server logs, proxies and error reports.
 - **A read-only integration exposes no way to write.** The Morning client has
-  a `GET` and nothing else, so no code path in ICEBOX OS can create, alter or
-  cancel a document in the accounting system. Where a host is chosen rather
-  than configured — Morning's production and sandbox URLs are fixed constants —
-  a wrong environment variable cannot redirect credentials somewhere else.
+  a `GET`, plus a `POST` that refuses any path outside an explicit list of
+  search endpoints — Morning expresses some reads as POST, and that is not a
+  reason to hand the codebase a general-purpose write. So no code path in
+  ICEBOX OS can create, alter or cancel a document in the accounting system;
+  widening `SEARCH_PATHS` is the deliberate act of changing that. Where a host
+  is chosen rather than configured — Morning's production and sandbox URLs are
+  fixed constants — a wrong environment variable cannot redirect credentials
+  somewhere else.
 - **One owner, one password.** `ICEBOX_ADMIN_PASSWORD` is the login credential
   and the key that signs session cookies, so rotating it signs every device out.
   `src/proxy.ts` requires a valid session for every route except the login
