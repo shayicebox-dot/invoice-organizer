@@ -35,11 +35,25 @@ const totalOf = (
 ) => summary.byOrigin.find((entry) => entry.origin === origin);
 
 test('the storage-boxes phrase marks a direct sale', () => {
-  assert.deepEqual(classifyOrigin([EXTERNAL]), { origin: 'external', ambiguous: false });
+  assert.deepEqual(classifyOrigin([EXTERNAL]), {
+    origin: 'external',
+    ambiguous: false,
+    matched: EXTERNAL,
+  });
 });
 
 test('the order-number phrase marks a Shopify-originated document', () => {
-  assert.deepEqual(classifyOrigin([SHOPIFY]), { origin: 'shopify', ambiguous: false });
+  assert.deepEqual(classifyOrigin([SHOPIFY]), {
+    origin: 'shopify',
+    ambiguous: false,
+    matched: SHOPIFY,
+  });
+});
+
+test('the matched description is the exact line that decided it', () => {
+  const decided = `תשלום עבור ${SHOPIFY} באתר`;
+  assert.equal(classifyOrigin(['משלוח', decided]).matched, decided);
+  assert.equal(classifyOrigin(['משלוח']).matched, null);
 });
 
 test('neither phrase leaves the sale unclassified', () => {
@@ -60,7 +74,11 @@ test('a phrase on any line counts, not only the first', () => {
 test('both phrases together are read as Shopify, and reported as ambiguous', () => {
   // Counting a sale Shopify already reports a second time is the one mistake
   // worth ruling out, so the Shopify reading wins and says it was ambiguous.
-  assert.deepEqual(classifyOrigin([SHOPIFY, EXTERNAL]), { origin: 'shopify', ambiguous: true });
+  assert.deepEqual(classifyOrigin([SHOPIFY, EXTERNAL]), {
+    origin: 'shopify',
+    ambiguous: true,
+    matched: SHOPIFY,
+  });
 });
 
 test('a phrase cannot be formed across two separate descriptions', () => {

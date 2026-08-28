@@ -50,7 +50,8 @@ MVP dashboard over an empty data source. What exists:
   Morning recorded; no figure on any screen depends on it
 - Settings → Morning payment diagnostics: the credit-card and payment-app
   payments Morning recorded over the selected period — one row per payment,
-  read from the nested `payment` array of each document the search matches —
+  one row per payment, read from the nested `payment` array of each document the
+  search matches and classified from that document read in full —
   with totals per type and per currency, in Morning's own vocabulary, and each
   classified by where its sale came from. Inspection only — it is what will
   decide how, or whether, collections are ever modelled

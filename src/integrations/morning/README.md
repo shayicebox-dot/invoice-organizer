@@ -33,8 +33,16 @@ answer what ICEBOX's real collections look like in Morning before any of them
 are allowed near a financial figure. Nothing downstream reads it: no dashboard
 figure, no metric, no P&L line.
 
-Each payment is also classified by where its sale came from, read from the
-document's descriptions against the phrases in `src/lib/config/sales-origin.ts`
+Each payment is also classified by where its sale came from. The search does not
+carry the description text — in production every row came back with none, and so
+unclassified — so each unique parent document is read once through
+`GET /documents/{id}` and the classification runs against that. One request per
+document however many of its payments were returned; a document that fails to
+read leaves its payments unclassified and is counted, rather than failing the
+panel.
+
+The rule reads the document's descriptions against the phrases in
+`src/lib/config/sales-origin.ts`
 — a direct sale names the product, a Shopify-raised document names the order.
 That rule, not a payment type, is what identifies origin. Reading the
 descriptions is a deliberate and narrow exception to not walking nested

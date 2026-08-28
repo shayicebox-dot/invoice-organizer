@@ -1,7 +1,7 @@
 import 'server-only';
 
-import { morningSearch } from '@/integrations/morning/client';
-import { getMorningConfig } from '@/integrations/morning/config';
+import { morningGet, morningSearch } from '@/integrations/morning/client';
+import { getMorningConfig, type MorningConfig } from '@/integrations/morning/config';
 import { isRecord, readField } from '@/integrations/shopify/json';
 import type { DateRange } from '@/core/period';
 
@@ -30,6 +30,7 @@ import type { DateRange } from '@/core/period';
  */
 
 const SEARCH_PATH = 'documents/payments/search';
+const DOCUMENT_PATH = 'documents';
 
 /** Morning's own payment-type codes. Passed as filters, not interpreted. */
 export const PAYMENT_TYPE_CREDIT_CARD = 3;
@@ -128,6 +129,14 @@ export type MorningPaymentsPage = {
   readonly documentsWithoutPayments: number;
   /** Which nested key the payments were found under, for the diagnostic to state. */
   readonly paymentKey: string | null;
+  /** Unique parent documents fetched in full, one request each. */
+  readonly documentsFetched: number;
+  /** Documents whose full read failed. Their payments stay unclassified. */
+  readonly documentsFailed: number;
+  /** Documents fetched in full that still carried no description text at all. */
+  readonly documentsWithoutDescriptions: number;
+  /** True when the enrichment ceiling was reached, leaving some unclassified. */
+  readonly enrichmentTruncated: boolean;
   /** True when the sweep stopped at `MAX_PAGES` with more still to read. */
   readonly truncated: boolean;
   readonly pagesRead: number;
@@ -150,7 +159,50 @@ export async function fetchPaymentsInRange(
   paymentTypes: readonly number[],
 ): Promise<MorningPaymentsPage> {
   const config = getMorningConfig();
-  const collected: MorningPaymentRecord[] = [];
+  const sweep = await sweepPages(config, range, paymentTypes);
+  const details = await fetchDocuments(config, sweep.documentIds);
+
+  const payments = sweep.pending.map(({ entry, context }) =>
+    parsePayment(entry, mergeDetail(context, details.byId.get(context.documentId ?? ''))),
+  );
+
+  return {
+    payments,
+    documentCount: sweep.documentCount,
+    documentsWithoutPayments: sweep.documentsWithoutPayments,
+    paymentKey: sweep.paymentKey,
+    documentsFetched: details.fetched,
+    documentsFailed: details.failed,
+    documentsWithoutDescriptions: details.withoutDescriptions,
+    enrichmentTruncated: details.truncated,
+    truncated: sweep.truncated,
+    pagesRead: sweep.pagesRead,
+    pagesReported: sweep.pagesReported,
+    shape: sweep.shape,
+  };
+}
+
+type Sweep = {
+  readonly pending: readonly { entry: Record<string, unknown>; context: DocumentContext }[];
+  /** Unique parent document ids, in the order first seen. */
+  readonly documentIds: readonly string[];
+  readonly documentCount: number;
+  readonly documentsWithoutPayments: number;
+  readonly paymentKey: string | null;
+  readonly truncated: boolean;
+  readonly pagesRead: number;
+  readonly pagesReported: number | null;
+  readonly shape: string;
+};
+
+/** Walk every page of the search, collecting payments and their parents. */
+async function sweepPages(
+  config: MorningConfig,
+  range: DateRange,
+  paymentTypes: readonly number[],
+): Promise<Sweep> {
+  const pending: { entry: Record<string, unknown>; context: DocumentContext }[] = [];
+  const documentIds = new Set<string>();
   let shape = 'unknown';
   let pagesRead = 0;
   let pagesReported: number | null = null;
@@ -187,10 +239,9 @@ export async function fetchPaymentsInRange(
       else paymentKey = nested.key ?? paymentKey;
 
       const context = readDocumentContext(item);
+      if (context.documentId !== null) documentIds.add(context.documentId);
 
-      for (const entry of nested.entries) {
-        collected.push(parsePayment(entry, context));
-      }
+      for (const entry of nested.entries) pending.push({ entry, context });
     }
 
     const lastPage =
@@ -200,7 +251,8 @@ export async function fetchPaymentsInRange(
     // stated page total that never runs out would otherwise loop to the ceiling.
     if (lastPage || found.items.length === 0) {
       return {
-        payments: collected,
+        pending,
+        documentIds: [...documentIds],
         documentCount,
         documentsWithoutPayments,
         paymentKey,
@@ -213,7 +265,8 @@ export async function fetchPaymentsInRange(
   }
 
   return {
-    payments: collected,
+    pending,
+    documentIds: [...documentIds],
     documentCount,
     documentsWithoutPayments,
     paymentKey,
@@ -221,6 +274,94 @@ export async function fetchPaymentsInRange(
     pagesRead,
     pagesReported,
     shape,
+  };
+}
+
+type DocumentDetails = {
+  readonly byId: ReadonlyMap<string, DocumentContext>;
+  readonly fetched: number;
+  readonly failed: number;
+  readonly withoutDescriptions: number;
+  readonly truncated: boolean;
+};
+
+/**
+ * Read each unique parent document in full, once.
+ *
+ * The search answers with enough of a document to identify it, but not with the
+ * description text the sales-origin rule reads — in production every row came
+ * back with no description at all, and so unclassified. `GET /documents/{id}`
+ * returns the whole document, so it is fetched here, once per document however
+ * many of its payments were returned.
+ *
+ * One document failing does not fail the diagnostic: its payments stay
+ * unclassified and the failure is counted, because a panel that shows most of
+ * the answer plus an honest gap is more use than one that shows nothing.
+ */
+async function fetchDocuments(
+  config: MorningConfig,
+  documentIds: readonly string[],
+): Promise<DocumentDetails> {
+  const wanted = documentIds.slice(0, MAX_DOCUMENTS_FETCHED);
+  const byId = new Map<string, DocumentContext>();
+  let failed = 0;
+  let withoutDescriptions = 0;
+
+  for (let start = 0; start < wanted.length; start += FETCH_CONCURRENCY) {
+    const batch = wanted.slice(start, start + FETCH_CONCURRENCY);
+
+    const results = await Promise.all(
+      batch.map(async (id) => {
+        try {
+          const payload = await morningGet({ path: `${DOCUMENT_PATH}/${encodeURIComponent(id)}`, config });
+          return { id, context: isRecord(payload) ? readDocumentContext(payload) : null };
+        } catch {
+          // The reason is already typed and reported by the client; here the
+          // only decision is that one document must not sink the rest.
+          return { id, context: null };
+        }
+      }),
+    );
+
+    for (const result of results) {
+      if (result.context === null) {
+        failed += 1;
+        continue;
+      }
+      if (result.context.descriptions.length === 0) withoutDescriptions += 1;
+      byId.set(result.id, result.context);
+    }
+  }
+
+  return {
+    byId,
+    fetched: byId.size,
+    failed,
+    withoutDescriptions,
+    truncated: documentIds.length > wanted.length,
+  };
+}
+
+/**
+ * Prefer the full document, fall back to what the search gave.
+ *
+ * Field by field rather than wholesale: the search result is a real answer for
+ * anything the full read did not carry, and a document that failed to fetch
+ * still keeps the identifiers the table needs.
+ */
+function mergeDetail(
+  context: DocumentContext,
+  detail: DocumentContext | undefined,
+): DocumentContext {
+  if (detail === undefined) return context;
+
+  return {
+    documentId: detail.documentId ?? context.documentId,
+    documentNumber: detail.documentNumber ?? context.documentNumber,
+    documentType: detail.documentType ?? context.documentType,
+    documentStatus: detail.documentStatus ?? context.documentStatus,
+    currency: detail.currency ?? context.currency,
+    descriptions: detail.descriptions.length > 0 ? detail.descriptions : context.descriptions,
   };
 }
 
@@ -270,6 +411,21 @@ type DocumentContext = {
 /** Descriptions carried per document. A cap, not an expectation. */
 const MAX_DESCRIPTIONS = 8;
 const MAX_DESCRIPTION_LENGTH = 200;
+
+/**
+ * How many documents are fetched at once when enriching.
+ *
+ * Morning allows roughly three requests a second. Three in flight keeps the
+ * sweep as quick as that budget allows without inviting the 429s that would
+ * make the diagnostic unreliable.
+ */
+const FETCH_CONCURRENCY = 3;
+
+/**
+ * A ceiling on enrichment. Beyond it the classification is incomplete, and the
+ * caller says so rather than presenting a partial answer as a whole one.
+ */
+const MAX_DOCUMENTS_FETCHED = 400;
 
 /**
  * The payments nested inside one document.
