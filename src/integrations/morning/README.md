@@ -41,8 +41,9 @@ document however many of its payments were returned; a document that fails to
 read leaves its payments unclassified and is counted, rather than failing the
 panel.
 
-The rule reads the document's descriptions against the phrases in
-`src/lib/config/sales-origin.ts`
+The rule reads the document's descriptions against the patterns in
+`src/lib/config/sales-origin.ts`, in that order: an order reference decides on
+its own, and the product phrase is consulted only when there is none
 — a direct sale names the product, a Shopify-raised document names the order.
 That rule, not a payment type, is what identifies origin. Reading the
 descriptions is a deliberate and narrow exception to not walking nested
@@ -101,6 +102,10 @@ evidence rather than guessing at the answer.
   for more is refused with 400 `גודל תוצאות חיפוש לא תקין` ("invalid search
   result size"). How many rows a screen shows is a separate question from how
   many rows one request may ask for.
+- **A Shopify-raised document names the product too.** `קופסאות אחסון לנעליים`
+  sits on documents raised from orders as readily as on direct sales, so the
+  product phrase alone proves nothing about origin. The order reference is
+  checked first, and only its absence makes a sale direct.
 - **A payment's date can be absent, empty or malformed**, and real ones are.
   Formatting one without checking throws `RangeError: Invalid time value`,
   which in a client component unmounts the page. Provider dates go through

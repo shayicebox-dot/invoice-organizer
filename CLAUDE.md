@@ -175,7 +175,7 @@ src/
 │   ├── auth/current-session.ts is this request signed in?
 │   ├── config/business.ts      business facts, cost model, VAT schedule
 │   ├── config/products.ts      seed variant → box mapping, preset choices
-│   ├── config/sales-origin.ts  the phrases that identify a direct sale
+│   ├── config/sales-origin.ts  the patterns that identify where a sale came from
 │   ├── config/env.ts           the only place that reads process.env
 │   ├── config/navigation.ts    single source of truth for navigation
 │   ├── supabase/client.ts      browser client (anon key, RLS)

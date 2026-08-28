@@ -43,10 +43,13 @@ export type PaymentRowView = {
   readonly documentType: number | null;
   /** Where the sale came from, decided from the document's descriptions. */
   readonly origin: SalesOrigin;
-  /** True when both phrases appeared and the Shopify reading was taken. */
-  readonly originAmbiguous: boolean;
   /** The description that decided the classification, verbatim. */
   readonly matchedDescription: string | null;
+  /**
+   * The Shopify order reference exactly as written, when one was found. Its
+   * presence is what made the row Shopify-originated.
+   */
+  readonly matchedOrderMarker: string | null;
   /** Whether the payment actually moved money. */
   readonly settlement: SettlementState;
   /** True when the parent document is a credit note, so the amount subtracts. */
@@ -87,8 +90,6 @@ export type MorningPaymentsView =
       readonly unpaidCount: number;
       /** Payments left out of every total because the document was cancelled. */
       readonly cancelledCount: number;
-      /** Payments where both phrases appeared and Shopify was taken. */
-      readonly ambiguousCount: number;
       /** Unique parent documents read in full, one request each. */
       readonly documentsFetched: number;
       /** Documents whose full read failed; their payments stay unclassified. */
