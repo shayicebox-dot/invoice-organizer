@@ -100,7 +100,6 @@ export async function getMorningPaymentDiagnostics(
       byOrigin: origins.byOrigin,
       unpaidCount: origins.unpaidCount,
       cancelledCount: origins.cancelledCount,
-      ambiguousCount: rows.filter((row) => row.originAmbiguous).length,
       documentsFetched: page.documentsFetched,
       documentsFailed: page.documentsFailed,
       documentsWithoutDescriptions: page.documentsWithoutDescriptions,
@@ -151,8 +150,8 @@ function toRow(payment: MorningPaymentRecord): PaymentRowView {
 
   return {
     origin: origin.origin,
-    originAmbiguous: origin.ambiguous,
     matchedDescription: origin.matched,
+    matchedOrderMarker: origin.orderMarker,
     settlement,
     isReversal,
     descriptions: payment.descriptions,

@@ -197,17 +197,6 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
         </Notice>
       ) : null}
 
-      {result.ambiguousCount > 0 ? (
-        <Notice>
-          {result.ambiguousCount === 1
-            ? 'One payment carried both phrases'
-            : `${formatCount(result.ambiguousCount)} payments carried both phrases`}{' '}
-          in the same document. Each was read as Shopify-originated, because counting a sale Shopify
-          already reports a second time is the one mistake worth ruling out. They are marked
-          &ldquo;both phrases&rdquo; below — worth checking before this rule decides any figure.
-        </Notice>
-      ) : null}
-
       {result.documentsWithoutPayments > 0 ? (
         <Notice>
           {result.documentsWithoutPayments === 1
@@ -343,12 +332,22 @@ function Classification({ row }: { readonly row: PaymentRowView }) {
       <span className={`inline-block rounded border px-1.5 py-0.5 text-xs whitespace-nowrap ${tone}`}>
         {ORIGIN_SHORT[row.origin]}
       </span>
+      {/* The order reference exactly as written: what made this Shopify's. */}
+      {row.matchedOrderMarker === null ? null : (
+        <span
+          dir="auto"
+          className="inline-block max-w-[12rem] truncate rounded border border-border-subtle bg-surface-muted px-1.5 py-0.5 text-xs text-foreground-muted [unicode-bidi:isolate]"
+          title={row.matchedOrderMarker}
+        >
+          {row.matchedOrderMarker}
+        </span>
+      )}
       <div className="flex flex-wrap gap-1">
         {row.settlement === 'settled' ? null : (
           <Chip label={row.settlement === 'unpaid' ? 'not paid' : 'cancelled'} />
         )}
         {row.isReversal ? <Chip label="reversal" /> : null}
-        {row.originAmbiguous ? <Chip label="both phrases" /> : null}
+
       </div>
     </div>
   );

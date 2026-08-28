@@ -5,7 +5,11 @@ import {
   type CurrencyCode,
   type Money,
 } from '@/core/money';
-import { SALES_ORIGIN_PHRASES, type SalesOrigin } from '@/lib/config/sales-origin';
+import {
+  EXTERNAL_SALE_PHRASE,
+  SHOPIFY_ORDER_MARKER,
+  type SalesOrigin,
+} from '@/lib/config/sales-origin';
 
 /**
  * Classifying an accounting system's payments by where the sale came from.
@@ -18,9 +22,12 @@ import { SALES_ORIGIN_PHRASES, type SalesOrigin } from '@/lib/config/sales-origi
  * Two rules govern the arithmetic, and both exist to stop a total being
  * overstated:
  *
- * - **A sale is counted once.** A document naming a Shopify order describes a
- *   sale Shopify already reports. It is classified, listed and counted, and it
- *   is never part of external revenue.
+ * - **A sale is counted once.** A document carrying a Shopify order reference
+ *   describes a sale Shopify already reports. It is classified, listed and
+ *   counted, and it is never part of external revenue. The order reference is
+ *   checked first and settles the question on its own, because a Shopify
+ *   document names the product too — matching the product phrase first counted
+ *   Shopify sales as direct ones.
  * - **Money that went back reduces the total.** A credit note is a reversal, so
  *   its payments count negatively against the class they belong to. A refund of
  *   a direct sale therefore lowers external revenue rather than adding to it.
@@ -81,33 +88,46 @@ const ORIGINS: readonly SalesOrigin[] = ['external', 'shopify', 'unclassified'];
 /**
  * Decide a sale's origin from the descriptions attached to it.
  *
- * A Shopify order reference wins when both phrases appear. The alternative —
- * treating such a document as a direct sale — would count a sale Shopify
- * already reports a second time, and overstating revenue is the one outcome
- * this system must never produce. Ambiguity is reported alongside the answer so
- * it can be looked at rather than trusted silently.
+ * Order matters, and it is the whole rule:
+ *
+ * 1. A Shopify order reference anywhere makes the sale Shopify-originated.
+ * 2. Only when there is none does the product phrase make it a direct sale.
+ * 3. Otherwise it is unclassified.
+ *
+ * The first step is not a tie-break, it is precedence. Real Shopify-raised
+ * documents name the product as well — `קופסאות אחסון לנעליים` sits on them
+ * beside `הזמנה 2242` — so a rule that looked for the product first classified
+ * Shopify sales as direct ones, which would have counted revenue Shopify
+ * already reports a second time.
  */
 export function classifyOrigin(descriptions: readonly string[]): {
   readonly origin: SalesOrigin;
-  readonly ambiguous: boolean;
   /**
    * The description that decided it, verbatim. `null` when nothing matched, so
    * a classification always carries the text it was made from and can be
    * checked rather than trusted.
    */
   readonly matched: string | null;
+  /** The order reference exactly as written, when one was found. */
+  readonly orderMarker: string | null;
 } {
-  // Matched per description rather than over a joined string, so a phrase
-  // cannot be formed across two descriptions that each hold only part of it —
-  // and so the one that decided the answer can be named.
-  const shopify = descriptions.find((text) => text.includes(SALES_ORIGIN_PHRASES.shopify));
-  const external = descriptions.find((text) => text.includes(SALES_ORIGIN_PHRASES.external));
-
-  if (shopify !== undefined) {
-    return { origin: 'shopify', ambiguous: external !== undefined, matched: shopify };
+  // Matched per description rather than over a joined string, so a marker
+  // cannot be formed across two descriptions that each hold part of it — and so
+  // the one that decided the answer can be named.
+  for (const text of descriptions) {
+    const marker = SHOPIFY_ORDER_MARKER.exec(text);
+    if (marker !== null) {
+      return { origin: 'shopify', matched: text, orderMarker: marker[0] };
+    }
   }
-  if (external !== undefined) return { origin: 'external', ambiguous: false, matched: external };
-  return { origin: 'unclassified', ambiguous: false, matched: null };
+
+  const external = descriptions.find((text) => text.includes(EXTERNAL_SALE_PHRASE));
+
+  if (external !== undefined) {
+    return { origin: 'external', matched: external, orderMarker: null };
+  }
+
+  return { origin: 'unclassified', matched: null, orderMarker: null };
 }
 
 export function summariseByOrigin(payments: readonly ClassifiedPayment[]): ClassificationSummary {

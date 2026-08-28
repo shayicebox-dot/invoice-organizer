@@ -15,8 +15,7 @@ import {
  * they are pinned here rather than checked once by eye.
  */
 
-const EXTERNAL = 'קופסאות אחסון 20 יחידות';
-const SHOPIFY = 'הזמנה מספר 1042';
+const BOXES = 'קופסאות אחסון לנעליים';
 
 function payment(over: Partial<ClassifiedPayment> = {}): ClassifiedPayment {
   return {
@@ -34,62 +33,70 @@ const totalOf = (
   origin: 'external' | 'shopify' | 'unclassified',
 ) => summary.byOrigin.find((entry) => entry.origin === origin);
 
-test('the storage-boxes phrase marks a direct sale', () => {
-  assert.deepEqual(classifyOrigin([EXTERNAL]), {
-    origin: 'external',
-    ambiguous: false,
-    matched: EXTERNAL,
-  });
-});
-
-test('the order-number phrase marks a Shopify-originated document', () => {
-  assert.deepEqual(classifyOrigin([SHOPIFY]), {
-    origin: 'shopify',
-    ambiguous: false,
-    matched: SHOPIFY,
-  });
-});
-
-test('the matched description is the exact line that decided it', () => {
-  const decided = `תשלום עבור ${SHOPIFY} באתר`;
-  assert.equal(classifyOrigin(['משלוח', decided]).matched, decided);
-  assert.equal(classifyOrigin(['משלוח']).matched, null);
-});
-
-test('neither phrase leaves the sale unclassified', () => {
-  for (const descriptions of [[], [''], ['משלוח'], ['Consulting']]) {
-    assert.equal(classifyOrigin(descriptions).origin, 'unclassified');
+test('an order reference makes the sale Shopify-originated', () => {
+  for (const marker of ['הזמנה 2242', 'הזמנה מספר 2242', 'הזמנה #2242', 'הזמנה: 2242']) {
+    const result = classifyOrigin([marker]);
+    assert.equal(result.origin, 'shopify', marker);
+    assert.equal(result.matched, marker, marker);
+    assert.match(result.orderMarker ?? '', /2242/, marker);
   }
 });
 
-test('a phrase is found inside a longer description', () => {
-  assert.equal(classifyOrigin([`מכירה ישירה - ${EXTERNAL} - נאסף מהמחסן`]).origin, 'external');
-  assert.equal(classifyOrigin(['תשלום עבור הזמנה מספר 88 באתר']).origin, 'shopify');
-});
-
-test('a phrase on any line counts, not only the first', () => {
-  assert.equal(classifyOrigin(['משלוח', EXTERNAL]).origin, 'external');
-});
-
-test('both phrases together are read as Shopify, and reported as ambiguous', () => {
-  // Counting a sale Shopify already reports a second time is the one mistake
-  // worth ruling out, so the Shopify reading wins and says it was ambiguous.
-  assert.deepEqual(classifyOrigin([SHOPIFY, EXTERNAL]), {
-    origin: 'shopify',
-    ambiguous: true,
-    matched: SHOPIFY,
+test('the product phrase alone makes the sale external', () => {
+  assert.deepEqual(classifyOrigin([BOXES]), {
+    origin: 'external',
+    matched: BOXES,
+    orderMarker: null,
   });
+});
+
+test('an order reference beats the product phrase in the same document', () => {
+  // The case production exposed: Shopify-raised documents name the product too,
+  // and reading the product first counted them as direct sales.
+  const result = classifyOrigin([BOXES, 'הזמנה 2242']);
+  assert.equal(result.origin, 'shopify');
+  assert.equal(result.orderMarker, 'הזמנה 2242');
+});
+
+test('an order reference beats the product phrase in one line of text', () => {
+  const line = `${BOXES} - הזמנה מספר 2242`;
+  const result = classifyOrigin([line]);
+  assert.equal(result.origin, 'shopify');
+  assert.equal(result.matched, line);
+  assert.equal(result.orderMarker, 'הזמנה מספר 2242');
+});
+
+test('an order reference on any line wins, whatever its position', () => {
+  assert.equal(classifyOrigin(['הזמנה 2243', BOXES]).origin, 'shopify');
+  assert.equal(classifyOrigin([BOXES, 'משלוח', 'הזמנה 2244']).origin, 'shopify');
+});
+
+test('unrelated text is unclassified', () => {
+  for (const descriptions of [[], [''], ['משלוח'], ['ייעוץ עסקי'], ['Consulting']]) {
+    assert.equal(classifyOrigin(descriptions).origin, 'unclassified');
+    assert.equal(classifyOrigin(descriptions).matched, null);
+  }
+});
+
+test('the word "order" without a number marks nothing', () => {
+  // Otherwise any mention of an order in passing would silently reclassify a
+  // direct sale as one Shopify already reported.
+  assert.equal(classifyOrigin(['הזמנה מיוחדת ללקוח']).origin, 'unclassified');
+  assert.equal(classifyOrigin([`${BOXES} - הזמנה טלפונית`]).origin, 'external');
+});
+
+test('the order marker is reported exactly as written', () => {
+  assert.equal(classifyOrigin(['תשלום עבור הזמנה #2242 באתר']).orderMarker, 'הזמנה #2242');
+  assert.equal(classifyOrigin([BOXES]).orderMarker, null);
 });
 
 test('a phrase cannot be formed across two separate descriptions', () => {
   assert.equal(classifyOrigin(['קופסאות', 'אחסון']).origin, 'unclassified');
+  assert.equal(classifyOrigin(['הזמנה', '2242']).origin, 'unclassified');
 });
 
 test('external revenue sums its settled payments', () => {
-  const summary = summariseByOrigin([
-    payment({ amount: '450' }),
-    payment({ amount: '800.50' }),
-  ]);
+  const summary = summariseByOrigin([payment({ amount: '450' }), payment({ amount: '800.50' })]);
 
   assert.equal(totalOf(summary, 'external')?.totals[0]?.minorUnits, 125_050);
   assert.equal(totalOf(summary, 'external')?.settledCount, 2);
@@ -188,4 +195,26 @@ test('every origin is reported, including one with nothing in it', () => {
   );
   assert.deepEqual(totalOf(summary, 'unclassified')?.totals, []);
   assert.equal(totalOf(summary, 'unclassified')?.count, 0);
+});
+
+test('the three totals follow the precedence, end to end', () => {
+  // A period whose documents look like the real ones: every Shopify document
+  // names the product too, and only the last is a genuine direct sale.
+  const rows = [
+    { descriptions: [`${BOXES} - הזמנה 2242`], amount: '450' },
+    { descriptions: [BOXES, 'הזמנה מספר 2243'], amount: '800' },
+    { descriptions: ['הזמנה #2244'], amount: '250' },
+    { descriptions: [BOXES], amount: '1000' },
+    { descriptions: ['ייעוץ עסקי'], amount: '120' },
+  ];
+
+  const summary = summariseByOrigin(
+    rows.map((row) =>
+      payment({ origin: classifyOrigin(row.descriptions).origin, amount: row.amount }),
+    ),
+  );
+
+  assert.equal(totalOf(summary, 'shopify')?.totals[0]?.minorUnits, 150_000);
+  assert.equal(totalOf(summary, 'external')?.totals[0]?.minorUnits, 100_000);
+  assert.equal(totalOf(summary, 'unclassified')?.totals[0]?.minorUnits, 12_000);
 });
