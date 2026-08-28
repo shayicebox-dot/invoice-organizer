@@ -51,8 +51,9 @@ MVP dashboard over an empty data source. What exists:
 - Settings → Morning payment diagnostics: the credit-card and payment-app
   payments Morning recorded over the selected period — one row per payment,
   read from the nested `payment` array of each document the search matches —
-  with totals per type and per currency, in Morning's own vocabulary. Inspection only — it is
-  what will decide how, or whether, collections are ever modelled
+  with totals per type and per currency, in Morning's own vocabulary, and each
+  classified by where its sale came from. Inspection only — it is what will
+  decide how, or whether, collections are ever modelled
 
 What does **not** exist yet, and must not be invented ad hoc:
 
@@ -68,6 +69,9 @@ What does **not** exist yet, and must not be invented ad hoc:
   `subType`, `appType` and the rest identifies Bit, a hosted card link or a
   manually recorded payment is an open question, and the diagnostic panel
   reports those fields rather than asserting a meaning for them
+- Any Morning figure reaching a screen. The origin classification separates
+  direct sales from Shopify-raised documents and totals them, but that total is
+  evidence to check, not revenue — see `src/lib/config/sales-origin.ts`
 - Storage of imported Shopify orders (each page load reads Shopify live)
 - Any real or sample financial data
 
@@ -170,6 +174,7 @@ src/
 │   ├── auth/current-session.ts is this request signed in?
 │   ├── config/business.ts      business facts, cost model, VAT schedule
 │   ├── config/products.ts      seed variant → box mapping, preset choices
+│   ├── config/sales-origin.ts  the phrases that identify a direct sale
 │   ├── config/env.ts           the only place that reads process.env
 │   ├── config/navigation.ts    single source of truth for navigation
 │   ├── supabase/client.ts      browser client (anon key, RLS)

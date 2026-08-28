@@ -13,6 +13,16 @@ import {
   type MorningFailureReason,
 } from '@/integrations/morning/errors';
 import { summarisePayments } from '@/core/metrics/payment-diagnostics';
+import {
+  CANCELLED_DOCUMENT_STATUS,
+  CREDIT_NOTE_DOCUMENT_TYPE,
+  UNPAID_PAYMENT_TYPE,
+  classifyOrigin,
+  signedPaymentAmount,
+  summariseByOrigin,
+  type ClassifiedPayment,
+  type SettlementState,
+} from '@/core/metrics/payment-classification';
 import { moneyFromDecimalString, parseCurrencyCode } from '@/core/money';
 import type { DateRange } from '@/core/period';
 import { isMorningConfigured } from '@/lib/config/env';
@@ -28,6 +38,12 @@ import type {
  * One row per payment, not per document. Morning's search matches documents and
  * returns each with its payments nested inside, so a single invoice-receipt can
  * carry several payments and every figure here counts the nested entries.
+ *
+ * Each payment is also classified by where its sale came from, read from the
+ * document's own descriptions. That classification is the point of this step:
+ * it separates direct sales the store never saw from documents raised against
+ * Shopify orders, which Shopify already reports and which must never be counted
+ * a second time. It is still evidence only — no figure on any screen reads it.
  *
  * Read-only, and deliberately isolated. Nothing here is imported by the
  * dashboard, by any metric, or by the profitability engine — a payment recorded
@@ -58,6 +74,16 @@ export async function getMorningPaymentDiagnostics(
 
   try {
     const page = await fetchPaymentsInRange(range, DIAGNOSTIC_PAYMENT_TYPES);
+    const rows = page.payments.map(toRow);
+    const origins = summariseByOrigin(
+      rows.map((row) => ({
+        origin: row.origin,
+        settlement: row.settlement,
+        amount: row.rawAmount,
+        currency: row.currency,
+        isReversal: row.isReversal,
+      })),
+    );
     const summary = summarisePayments(
       page.payments.map((payment) => ({
         typeCode: payment.type,
@@ -71,12 +97,16 @@ export async function getMorningPaymentDiagnostics(
       status: 'read',
       range: { start: range.start, end: range.end },
       totals: summary.byType,
+      byOrigin: origins.byOrigin,
+      unpaidCount: origins.unpaidCount,
+      cancelledCount: origins.cancelledCount,
+      ambiguousCount: rows.filter((row) => row.originAmbiguous).length,
       matchedCount: summary.totalCount,
       documentCount: page.documentCount,
       documentsWithoutPayments: page.documentsWithoutPayments,
       paymentKey: page.paymentKey,
       unexpectedTypeCount: summary.unexpectedTypeCount,
-      rows: page.payments.slice(0, MAX_ROWS_SHOWN).map(toRow),
+      rows: rows.slice(0, MAX_ROWS_SHOWN),
       rowsTruncated: page.payments.length > MAX_ROWS_SHOWN,
       sweepTruncated: page.truncated,
       pagesRead: page.pagesRead,
@@ -103,7 +133,27 @@ export async function getMorningPaymentDiagnostics(
  * Morning said, instead of the row silently reading as zero.
  */
 function toRow(payment: MorningPaymentRecord): PaymentRowView {
+  const origin = classifyOrigin(payment.descriptions);
+  const settlement = settlementOf(payment);
+  const isReversal = payment.documentType === CREDIT_NOTE_DOCUMENT_TYPE;
+
+  const classified: ClassifiedPayment = {
+    origin: origin.origin,
+    settlement,
+    amount: payment.amount,
+    currency: payment.currency,
+    isReversal,
+  };
+
   return {
+    origin: origin.origin,
+    originAmbiguous: origin.ambiguous,
+    settlement,
+    isReversal,
+    descriptions: payment.descriptions,
+    // The same function the totals use, so a row can never disagree with the
+    // figure it is part of.
+    settledAmount: settlement === 'settled' ? signedPaymentAmount(classified) : null,
     date: payment.date,
     amount: priceRow(payment),
     rawAmount: payment.amount,
@@ -121,6 +171,20 @@ function toRow(payment: MorningPaymentRecord): PaymentRowView {
     urlFields: payment.urlFields,
     extras: payment.extras,
   };
+}
+
+/**
+ * Whether this payment moved money.
+ *
+ * A cancelled document is a record that was withdrawn, and Morning's `-1`
+ * payment type means the line is not paid at all. Both are excluded from every
+ * total and still listed, so the panel shows what exists rather than only what
+ * counts.
+ */
+function settlementOf(payment: MorningPaymentRecord): SettlementState {
+  if (payment.documentStatus === CANCELLED_DOCUMENT_STATUS) return 'cancelled';
+  if (payment.type === UNPAID_PAYMENT_TYPE) return 'unpaid';
+  return 'settled';
 }
 
 function priceRow(payment: MorningPaymentRecord): PaymentRowView['amount'] {

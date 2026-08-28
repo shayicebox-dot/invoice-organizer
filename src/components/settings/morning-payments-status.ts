@@ -1,4 +1,6 @@
 import type { Money } from '@/core/money';
+import type { SettlementState } from '@/core/metrics/payment-classification';
+import type { SalesOrigin } from '@/lib/config/sales-origin';
 
 /**
  * View model for the Morning payment diagnostics shown in Settings.
@@ -18,6 +20,12 @@ export type PaymentRowView = {
   readonly date: string | null;
   /** `null` when the amount or its currency could not be read. */
   readonly amount: Money | null;
+  /**
+   * The amount as it reaches a total: negative for a reversal, and `null` when
+   * the payment is not settled or could not be priced. Shown rather than the
+   * stated amount so the arithmetic above the table can be followed.
+   */
+  readonly settledAmount: Money | null;
   /** What Morning actually said, kept alongside so a failed parse is visible. */
   readonly rawAmount: string | null;
   readonly currency: string | null;
@@ -33,9 +41,29 @@ export type PaymentRowView = {
   readonly documentId: string | null;
   readonly documentNumber: string | null;
   readonly documentType: number | null;
+  /** Where the sale came from, decided from the document's descriptions. */
+  readonly origin: SalesOrigin;
+  /** True when both phrases appeared and the Shopify reading was taken. */
+  readonly originAmbiguous: boolean;
+  /** Whether the payment actually moved money. */
+  readonly settlement: SettlementState;
+  /** True when the parent document is a credit note, so the amount subtracts. */
+  readonly isReversal: boolean;
+  /** The descriptions the classification read, shown so it can be checked. */
+  readonly descriptions: readonly string[];
   /** Names of URL-carrying fields. The URLs themselves are never sent here. */
   readonly urlFields: readonly string[];
   readonly extras: readonly ObservedFieldView[];
+};
+
+export type OriginTotalView = {
+  readonly origin: SalesOrigin;
+  readonly count: number;
+  readonly settledCount: number;
+  readonly totals: readonly Money[];
+  readonly unpriced: number;
+  readonly unsupportedCurrencies: readonly string[];
+  readonly reversals: number;
 };
 
 export type PaymentTypeTotalView = {
@@ -51,6 +79,14 @@ export type MorningPaymentsView =
       readonly status: 'read';
       readonly range: { readonly start: string; readonly end: string };
       readonly totals: readonly PaymentTypeTotalView[];
+      /** Totals by where the sale came from — the headline of this panel. */
+      readonly byOrigin: readonly OriginTotalView[];
+      /** Payments left out of every total because nothing was actually paid. */
+      readonly unpaidCount: number;
+      /** Payments left out of every total because the document was cancelled. */
+      readonly cancelledCount: number;
+      /** Payments where both phrases appeared and Shopify was taken. */
+      readonly ambiguousCount: number;
       /** Nested payments found, not documents returned. */
       readonly matchedCount: number;
       /** Documents the search matched, each of which may hold several payments. */

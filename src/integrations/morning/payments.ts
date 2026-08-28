@@ -97,6 +97,15 @@ export type MorningPaymentRecord = {
   readonly documentId: string | null;
   readonly documentNumber: string | null;
   readonly documentType: number | null;
+  /** Morning's document status code — 4 is a cancelled document. */
+  readonly documentStatus: number | null;
+  /**
+   * The descriptions attached to the sale: the document's own, then each line
+   * item's. Carried because how the business words a document is what says
+   * whether the sale came through Shopify or not; nothing else in the payload
+   * answers that.
+   */
+  readonly descriptions: readonly string[];
   /**
    * Names of fields carrying a URL. The names are reported and the URLs are
    * not: a hosted-payment link is a way to take money, and the question here is
@@ -253,8 +262,14 @@ type DocumentContext = {
   readonly documentId: string | null;
   readonly documentNumber: string | null;
   readonly documentType: number | null;
+  readonly documentStatus: number | null;
   readonly currency: string | null;
+  readonly descriptions: readonly string[];
 };
+
+/** Descriptions carried per document. A cap, not an expectation. */
+const MAX_DESCRIPTIONS = 8;
+const MAX_DESCRIPTION_LENGTH = 200;
 
 /**
  * The payments nested inside one document.
@@ -283,8 +298,47 @@ function readDocumentContext(document: Record<string, unknown>): DocumentContext
     documentId: readText(document, ['id', 'documentId']),
     documentNumber: readText(document, ['number', 'documentNumber']),
     documentType: readInteger(document, ['type', 'documentType']),
+    documentStatus: readInteger(document, ['status']),
     currency: readText(document, ['currency']),
+    descriptions: readDescriptions(document),
   };
+}
+
+/**
+ * The descriptions attached to a document: its own, then its line items'.
+ *
+ * A deliberate and narrow exception to the rule that nested structures are not
+ * walked. Only fields named `description` are read, and only from the document
+ * root and its income lines — never a client object, never anything else. The
+ * text is product and order wording, and it is the only thing in the payload
+ * that says where a sale came from, so a diagnostic about origin cannot be
+ * built without it. Values are trimmed, truncated and capped in number.
+ */
+function readDescriptions(document: Record<string, unknown>): readonly string[] {
+  const found: string[] = [];
+
+  const add = (value: unknown): void => {
+    if (typeof value !== 'string') return;
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || found.length >= MAX_DESCRIPTIONS) return;
+    found.push(
+      trimmed.length <= MAX_DESCRIPTION_LENGTH
+        ? trimmed
+        : `${trimmed.slice(0, MAX_DESCRIPTION_LENGTH)}…`,
+    );
+  };
+
+  add(readField(document, 'description'));
+
+  const income = readField(document, 'income');
+
+  if (Array.isArray(income)) {
+    for (const line of income) {
+      if (isRecord(line)) add(readField(line, 'description'));
+    }
+  }
+
+  return found;
 }
 
 /**
@@ -326,6 +380,8 @@ function parsePayment(
     documentId: context.documentId,
     documentNumber: context.documentNumber,
     documentType: context.documentType,
+    documentStatus: context.documentStatus,
+    descriptions: context.descriptions,
   } as const;
 
   const urlFields: string[] = [];
