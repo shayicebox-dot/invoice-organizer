@@ -90,16 +90,24 @@ const ORIGINS: readonly SalesOrigin[] = ['external', 'shopify', 'unclassified'];
 export function classifyOrigin(descriptions: readonly string[]): {
   readonly origin: SalesOrigin;
   readonly ambiguous: boolean;
+  /**
+   * The description that decided it, verbatim. `null` when nothing matched, so
+   * a classification always carries the text it was made from and can be
+   * checked rather than trusted.
+   */
+  readonly matched: string | null;
 } {
-  // Joined with a separator so a phrase cannot be formed across two
-  // descriptions that each hold only part of it.
-  const haystack = descriptions.join('\n');
-  const external = haystack.includes(SALES_ORIGIN_PHRASES.external);
-  const shopify = haystack.includes(SALES_ORIGIN_PHRASES.shopify);
+  // Matched per description rather than over a joined string, so a phrase
+  // cannot be formed across two descriptions that each hold only part of it —
+  // and so the one that decided the answer can be named.
+  const shopify = descriptions.find((text) => text.includes(SALES_ORIGIN_PHRASES.shopify));
+  const external = descriptions.find((text) => text.includes(SALES_ORIGIN_PHRASES.external));
 
-  if (shopify) return { origin: 'shopify', ambiguous: external };
-  if (external) return { origin: 'external', ambiguous: false };
-  return { origin: 'unclassified', ambiguous: false };
+  if (shopify !== undefined) {
+    return { origin: 'shopify', ambiguous: external !== undefined, matched: shopify };
+  }
+  if (external !== undefined) return { origin: 'external', ambiguous: false, matched: external };
+  return { origin: 'unclassified', ambiguous: false, matched: null };
 }
 
 export function summariseByOrigin(payments: readonly ClassifiedPayment[]): ClassificationSummary {

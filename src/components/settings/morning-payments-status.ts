@@ -45,6 +45,8 @@ export type PaymentRowView = {
   readonly origin: SalesOrigin;
   /** True when both phrases appeared and the Shopify reading was taken. */
   readonly originAmbiguous: boolean;
+  /** The description that decided the classification, verbatim. */
+  readonly matchedDescription: string | null;
   /** Whether the payment actually moved money. */
   readonly settlement: SettlementState;
   /** True when the parent document is a credit note, so the amount subtracts. */
@@ -87,6 +89,14 @@ export type MorningPaymentsView =
       readonly cancelledCount: number;
       /** Payments where both phrases appeared and Shopify was taken. */
       readonly ambiguousCount: number;
+      /** Unique parent documents read in full, one request each. */
+      readonly documentsFetched: number;
+      /** Documents whose full read failed; their payments stay unclassified. */
+      readonly documentsFailed: number;
+      /** Documents read in full that carried no description text at all. */
+      readonly documentsWithoutDescriptions: number;
+      /** True when the enrichment ceiling was reached, leaving some unclassified. */
+      readonly enrichmentTruncated: boolean;
       /** Nested payments found, not documents returned. */
       readonly matchedCount: number;
       /** Documents the search matched, each of which may hold several payments. */

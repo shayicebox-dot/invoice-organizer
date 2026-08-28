@@ -106,7 +106,8 @@ export function MorningPaymentsCard({ configured, range }: MorningPaymentsCardPr
 
           <span className="text-xs text-foreground-subtle">
             Searches payment types 3 and 10 over the dates selected above, 25 documents a page
-            until every page is read, and lists the payments nested inside them. Nothing is written, and no figure on any screen changes.
+            until every page is read, lists the payments nested inside them, and reads each parent
+            document once for the text that classifies it. Nothing is written, and no figure on any screen changes.
           </span>
         </div>
 
@@ -173,6 +174,29 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
         </Notice>
       ) : null}
 
+      {result.documentsFailed > 0 || result.enrichmentTruncated ? (
+        <Notice>
+          {result.documentsFailed > 0
+            ? `${formatCount(result.documentsFailed)} ${
+                result.documentsFailed === 1 ? 'document' : 'documents'
+              } could not be read in full, so their payments stay unclassified.`
+            : null}
+          {result.enrichmentTruncated
+            ? ' More documents matched than this diagnostic reads in full, so the classification below covers only part of the period.'
+            : null}
+        </Notice>
+      ) : null}
+
+      {result.documentsWithoutDescriptions > 0 ? (
+        <Notice>
+          {result.documentsWithoutDescriptions === 1
+            ? 'One document was read in full but carried no description text at all.'
+            : `${formatCount(result.documentsWithoutDescriptions)} documents were read in full but carried no description text at all.`}{' '}
+          Nothing can classify them. If this is most of them, the rule is reading the wrong fields
+          rather than the documents being blank.
+        </Notice>
+      ) : null}
+
       {result.ambiguousCount > 0 ? (
         <Notice>
           {result.ambiguousCount === 1
@@ -224,8 +248,10 @@ function Results({ result }: { readonly result: Extract<MorningPaymentsView, { s
         Read from the <span className="text-foreground-muted">{result.shape}</span> field of
         Morning&rsquo;s answer, then from each document&rsquo;s nested{' '}
         <span className="text-foreground-muted">{result.paymentKey ?? 'payment'}</span> array. Every
-        amount comes from a payment entry; the document supplies its id, number, type, status and
-        the descriptions the classification reads. Payment type codes are Morning&rsquo;s own. What
+        amount comes from a payment entry. The classification reads each parent document in full —{' '}
+        <span className="text-foreground-muted">{formatCount(result.documentsFetched)}</span> of them
+        fetched once each, however many payments they hold — because the search alone does not carry
+        the description text. Payment type codes are Morning&rsquo;s own. What
         <span className="text-foreground-muted"> subType</span>,
         <span className="text-foreground-muted"> appType</span> and the observed fields mean for
         this account is not interpreted here — that is the question this panel exists to answer.
@@ -377,6 +403,7 @@ function PaymentTable({ rows }: { readonly rows: readonly PaymentRowView[] }) {
             <Th align="left">Currency</Th>
             <Th align="left">Payment method</Th>
             <Th align="left">Description</Th>
+            <Th align="left">Matched description</Th>
             <Th align="left">Classification</Th>
             <Th align="left">Parent document</Th>
             <Th align="left">Morning IDs</Th>
@@ -470,6 +497,21 @@ function PaymentRow({ row }: { readonly row: PaymentRowView }) {
       <td className="max-w-[20rem] py-2.5 pr-4">
         <Descriptions descriptions={row.descriptions} />
       </td>
+      <td className="max-w-[18rem] py-2.5 pr-4">
+        {row.matchedDescription === null ? (
+          <span className="text-foreground-subtle" title="No phrase matched, so nothing decided it">
+            —
+          </span>
+        ) : (
+          <span
+            dir="auto"
+            className="block truncate [unicode-bidi:isolate]"
+            title={row.matchedDescription}
+          >
+            {row.matchedDescription}
+          </span>
+        )}
+      </td>
       <td className="py-2.5 pr-4">
         <Classification row={row} />
       </td>
@@ -494,7 +536,7 @@ function PaymentRow({ row }: { readonly row: PaymentRowView }) {
 function RowFallback({ paymentId }: { readonly paymentId: string | null }) {
   return (
     <tr className="border-b border-border-subtle last:border-b-0">
-      <td colSpan={9} className="py-2.5 text-sm text-foreground-muted">
+      <td colSpan={10} className="py-2.5 text-sm text-foreground-muted">
         This payment could not be displayed
         {paymentId === null ? '' : ` (${paymentId})`}. The rest of the table is unaffected, and the
         totals above still include it.
