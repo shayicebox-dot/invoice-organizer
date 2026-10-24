@@ -56,16 +56,27 @@ export function DataSourceBanner({
     )
     .map(([, label]) => label);
 
-  const mockFields = [
+  // A provider that could not be read contributes nothing. Nothing stands in
+  // for it, so the total is *short* rather than estimated — a different and
+  // more dangerous thing than a placeholder, because a short cost total makes
+  // profit look better than it was.
+  const unavailableFields = [
     shopify.state === "connected" ? null : "revenue and orders",
-    meta.state === "connected" ? null : "Meta Ads",
-    googleAds.state === "connected" ? null : "Google Ads",
-    costSources.klaviyo === "mock" ? "Klaviyo" : null,
-    costSources.cogs === "mock" ? "COGS" : null,
-    costSources.shipping === "mock" ? "shipping" : null,
-    costSources.paymentFees === "mock" ? "payment fees" : null,
-    costSources.otherExpenses === "mock" ? "other expenses" : null,
+    meta.state === "connected" ? null : "Meta Ads spend",
+    googleAds.state === "connected" ? null : "Google Ads spend",
   ].filter((entry): entry is string => entry !== null);
+
+  const notConfiguredFields = (
+    [
+      [costSources.cogs, "COGS"],
+      [costSources.shipping, "shipping"],
+      [costSources.paymentFees, "payment fees"],
+      [costSources.klaviyo, "Klaviyo"],
+      [costSources.otherExpenses, "other expenses"],
+    ] as const
+  )
+    .filter(([source]) => source === "mock" || source === "not_configured")
+    .map(([, label]) => label);
 
   const incompleteFields = (
     [
@@ -115,10 +126,16 @@ export function DataSourceBanner({
               {manualFields.join(", ")}.{" "}
             </>
           ) : null}
-          {mockFields.length > 0 ? (
+          {notConfiguredFields.length > 0 ? (
             <>
-              <strong className="font-semibold text-ink">Still mock:</strong>{" "}
-              {mockFields.join(", ")}.
+              <strong className="font-semibold text-ink">Not configured (counted as zero):</strong>{" "}
+              {notConfiguredFields.join(", ")}.{" "}
+            </>
+          ) : null}
+          {unavailableFields.length > 0 ? (
+            <>
+              <strong className="font-semibold text-negative">Unavailable:</strong>{" "}
+              {unavailableFields.join(", ")} — counted as zero, not estimated.
             </>
           ) : null}
         </p>
@@ -127,7 +144,7 @@ export function DataSourceBanner({
           <InfoIcon className="mt-0.5 shrink-0 text-ink-muted" width={14} height={14} />
           <span>
             <strong className="font-semibold text-ink">
-              Every figure on this page is mock data.
+              No provider is connected, so every figure here is zero.
             </strong>{" "}
             Set the Shopify, Meta and Google Ads variables in{" "}
             <code className="rounded bg-surface-sunken px-1 py-0.5 font-mono text-[11px]">
@@ -146,17 +163,15 @@ export function DataSourceBanner({
         </p>
       ) : null}
 
-      {anyLive && mockFields.length > 0 ? (
+      {anyLive && unavailableFields.length > 0 ? (
         <p className="mt-1.5 text-[12px] leading-5 text-ink-secondary">
-          Net Profit and every margin therefore mix real inputs with placeholder costs.{" "}
-          <strong className="font-semibold text-ink">
-            Treat them as structural, not accurate
-          </strong>{" "}
-          until the remaining inputs are configured.
+          Nothing is substituted for a provider that could not be read, so this period&rsquo;s
+          costs are <strong className="font-semibold text-ink">short, not estimated</strong>.
+          That is why Net Profit is withheld rather than shown low.
         </p>
       ) : null}
 
-      {anyLive && mockFields.length === 0 && incompleteFields.length === 0 ? (
+      {anyLive && unavailableFields.length === 0 && incompleteFields.length === 0 ? (
         <p className="mt-1.5 text-[12px] leading-5 text-ink-secondary">
           Every input is real — no mock figure remains in this P&amp;L.
         </p>

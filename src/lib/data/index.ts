@@ -509,10 +509,7 @@ export async function getLiveDailyFinancials(
 ): Promise<{ days: DailyFinancials[]; status: LiveSourceStatus }> {
   const currency = currencyForScope(scope);
 
-  const [mockDays, shopifyResult] = await Promise.all([
-    getDailyFinancials(scope, start, end),
-    loadShopifySales(start, end),
-  ]);
+  const shopifyResult = await loadShopifySales(start, end);
 
   const [metaResult, googleResult] = await Promise.all([
     loadMetaSpend(start, end, currency),
@@ -523,15 +520,16 @@ export async function getLiveDailyFinancials(
   // before any source is consulted, so a source with nothing to say about a day
   // leaves a zero rather than removing the day.
   //
-  // This used to start from the mock series, which spans a fixed trailing
-  // window. Every overlay below is a `map` over the series it is given, so a
-  // requested day the mock generator had never produced had no row for live
-  // data to land in — and seven months of real Shopify, Meta and Google data
-  // were read and then silently dropped. The scaffold decided which days
-  // existed; now the caller's range does, and the scaffold is one overlay
-  // among several.
+  // Nothing generated is merged in. A day starts empty and only a real provider
+  // can put money on it, which means a provider that fails contributes zero
+  // rather than leaving a plausible number behind.
+  //
+  // That is not a stylistic preference. The generated series carried roughly
+  // $2,100 a day of Meta spend, and it used to be merged in first; when the
+  // Meta token expired its overlay was skipped and the generated figure
+  // survived into the totals, so Ad Spend read $60,188.95 of advertising that
+  // never happened and the margin was computed against it.
   let days = enumerateDates(start, end).map((date) => emptyDay(date, currency));
-  days = applyMockScaffold(days, mockDays);
 
   if (shopifyResult.days) days = applyShopifySales(days, shopifyResult.days);
   if (metaResult.days) days = applyMetaSpend(days, metaResult.days);
@@ -557,25 +555,6 @@ export async function getLiveDailyFinancials(
 function currencyForScope(scope: StoreScope): CurrencyCode {
   if (scope === ALL_STORES) return ORGANIZATION.baseCurrency;
   return STORES.find((store) => store.id === scope)?.currency ?? ORGANIZATION.baseCurrency;
-}
-
-/**
- * Merge the generated demo series onto the real day list.
- *
- * Purely additive, and only where a generated day exists. It supplies the cost
- * lines that have no real source configured yet — those are labelled `mock` in
- * the UI — and it never adds, removes or reorders a day.
- */
-function applyMockScaffold(
-  days: readonly DailyFinancials[],
-  mockDays: readonly DailyFinancials[],
-): DailyFinancials[] {
-  if (mockDays.length === 0) return [...days];
-  const byDate = new Map(mockDays.map((day) => [day.date, day]));
-  return days.map((day) => {
-    const mock = byDate.get(day.date);
-    return mock ? { ...mock, date: day.date, currency: day.currency } : day;
-  });
 }
 
 export interface LiveRangeReport extends RangeReport {

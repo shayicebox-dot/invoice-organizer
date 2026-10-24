@@ -803,6 +803,25 @@ withholds profit like every other. The generated series is now one overlay
 among several, supplying only the cost lines that have no real source
 configured, and it never decides which days exist.
 
+#### Nothing stands in for a provider that failed
+
+A day starts empty and only a real provider can put money on it. There is no
+generated fallback anywhere in the live path, and that is a correctness rule
+rather than a preference.
+
+It was learned the hard way. The generated series — which carried about $2,100
+a day of Meta spend — used to be merged in before the provider overlays. Each
+overlay only runs when its provider returned data, so when the Meta token
+expired its overlay was skipped and the generated figure **survived into the
+totals**: Ad Spend read $60,188.95 of advertising that never happened, and the
+profit margin was computed against it.
+
+A provider that cannot be read is therefore `unavailable`, never `mock`. The
+distinction matters: `mock` says a placeholder is standing in, while
+`unavailable` says the total is **short**. Short is the more dangerous of the
+two, because a short cost total makes profit look better than it was — which is
+why the gate below withholds profit rather than showing it low.
+
 #### Four inputs, one gate
 
 `assessCompleteness` (`src/lib/data/completeness.ts`) is the single place that

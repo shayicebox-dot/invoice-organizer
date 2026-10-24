@@ -12,6 +12,8 @@ export type DataSource =
   | "manual"
   | "manual-real"
   | "mock"
+  /** A provider that should be live but failed. Contributes zero. */
+  | "unavailable"
   | "blend"
   | "missing"
   | "not-configured";
@@ -31,12 +33,15 @@ export function SourceTag({
   const isMissing = source === "missing";
   const isManual = source === "manual" || source === "manual-real";
   const isNotConfigured = source === "not-configured";
+  const isUnavailable = source === "unavailable";
 
   return (
     <span
       title={
         source === "manual-real"
           ? "A real business rule applied to real Shopify volume"
+          : isUnavailable
+          ? "This provider could not be read — it contributes zero, it is not estimated"
           : isNotConfigured
           ? "Deliberately not set up — contributes zero"
           : isManual
@@ -54,6 +59,7 @@ export function SourceTag({
         isManual && "border-blue-200 bg-blue-50 text-blue-700",
         isNotConfigured && "border-line bg-surface text-ink-muted",
         isMissing && "border-red-200 bg-negative-soft text-negative",
+        isUnavailable && "border-red-200 bg-negative-soft text-negative",
         source === "mock" && "border-line bg-surface-sunken text-ink-muted",
         className,
       )}
@@ -68,7 +74,9 @@ export function SourceTag({
               ? "Manual"
               : isBlend
                 ? "Mixed"
-                : isMissing
+                : isUnavailable
+                  ? "Unavailable"
+                  : isMissing
                   ? "Missing data"
                   : isNotConfigured
                     ? "Not configured"

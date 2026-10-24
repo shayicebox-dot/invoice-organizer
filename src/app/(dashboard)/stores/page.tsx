@@ -39,6 +39,13 @@ export default async function StoresPage(props: PageProps<"/stores">) {
         description={`${view.range.label}. Every financial record is scoped to a store, so any store can be read on its own or rolled up.`}
       />
 
+      <p className="rounded-lg border border-amber-200 bg-amber-50/60 px-4 py-3 text-[12.5px] leading-5 text-ink-secondary">
+        <strong className="font-semibold text-ink">Generated figures.</strong> This page still
+        reads the demo series rather than your live data, so the numbers below are not real and
+        feed nothing. Overview, Profit &amp; Loss, Year Summary and Orders are live.
+      </p>
+
+
       <Card>
         <CardHeader
           title="All stores"

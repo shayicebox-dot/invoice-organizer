@@ -91,3 +91,54 @@ describe("sample fixtures", () => {
     assert.equal(typeof data.getLiveOrders, "function");
   });
 });
+
+describe("a provider that fails leaves nothing behind", () => {
+  it("never merges the generated series into the live day list", async () => {
+    const source = await readFile(
+      new URL("../src/lib/data/index.ts", import.meta.url).pathname,
+      "utf8",
+    );
+
+    // The generated series carried ~$2,100/day of Meta spend. It used to be
+    // merged in first, so when the Meta token expired its overlay was skipped
+    // and that figure survived into Ad Spend — $60,188.95 of advertising that
+    // never happened, with the margin computed against it.
+    const liveFn = source.slice(
+      source.indexOf("export async function getLiveDailyFinancials"),
+      source.indexOf("function currencyForScope"),
+    );
+
+    assert.ok(liveFn.length > 100, "expected to have found getLiveDailyFinancials");
+    assert.equal(liveFn.includes("applyMockScaffold"), false, "mock scaffold is back");
+    assert.equal(liveFn.includes("getDailyFinancials"), false, "generated series is back");
+  });
+
+  it("starts every day empty, so an absent provider contributes zero", async () => {
+    const { emptyDay } = await import("../src/lib/finance");
+    const day = emptyDay("2026-10-24", "USD");
+    assert.equal(day.metaAdSpend, 0);
+    assert.equal(day.googleAdSpend, 0);
+    assert.equal(day.adSpend, 0);
+    assert.equal(day.grossSales, 0);
+  });
+
+  it("labels a failed provider unavailable rather than mock", async () => {
+    const tag = await readFile(
+      new URL("../src/components/ui/source-tag.tsx", import.meta.url).pathname,
+      "utf8",
+    );
+    // "Mock" implies a number is standing in. Nothing stands in: the figure is
+    // zero because nothing could be read, which makes the total short.
+    assert.ok(tag.includes('"unavailable"'), "source tag needs an unavailable state");
+
+    const overview = await readFile(
+      new URL("../src/app/(dashboard)/page.tsx", import.meta.url).pathname,
+      "utf8",
+    );
+    assert.equal(
+      /meta\.state === "connected" \? "live" : "mock"/.test(overview),
+      false,
+      "a failed Meta read must not be labelled mock",
+    );
+  });
+});

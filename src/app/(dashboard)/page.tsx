@@ -38,19 +38,24 @@ export default async function OverviewPage(props: PageProps<"/">) {
   const report = await getLiveRangeReport(view.scope, view.range, view.previous);
   const { summary, previous, shopify, meta, googleAds, costs } = report;
 
-  // Each provider labels only the figures it owns. Shopify owns revenue and
-  // order counts; Meta owns ad spend; every other cost line is still mock.
-  const revenueSource = shopify.state === "connected" ? "live" : "mock";
-  const metaSource = meta.state === "connected" ? "live" : "mock";
-  const googleSource = googleAds.state === "connected" ? "live" : "mock";
+  // Each provider labels only the figures it owns. A provider that failed is
+  // `unavailable`, never `mock`: its figure is zero because nothing could be
+  // read, and calling that mock implies a number is standing in for it.
+  const providerSource = (state: string) =>
+    state === "connected" ? "live" : state === "not_configured" ? "not-configured" : "unavailable";
+
+  const revenueSource = providerSource(shopify.state);
+  const metaSource = providerSource(meta.state);
+  const googleSource = providerSource(googleAds.state);
   // The Ad Spend tile covers both platforms, so it is only fully live when
-  // both are; one of two makes it a blend.
+  // both are. If either is missing the total is short, and short is the one
+  // thing an ad-spend figure must never silently be.
   const adSpendSource =
     metaSource === "live" && googleSource === "live"
       ? "live"
       : metaSource === "live" || googleSource === "live"
         ? "blend"
-        : "mock";
+        : "unavailable";
   const anyLive =
     revenueSource === "live" || metaSource === "live" || googleSource === "live";
 
@@ -135,7 +140,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             deltaCaption={comparison}
             higherIsBetter={false}
             source={adSpendSource}
-            footnote={`Meta ${formatMoney(summary.metaAdSpend, summary.currency, { compact: true })} ${metaSource} · Google ${formatMoney(summary.googleAdSpend, summary.currency, { compact: true })} ${googleSource}`}
+            footnote={`Meta ${metaSource === "live" ? formatMoney(summary.metaAdSpend, summary.currency, { compact: true }) : "unavailable"} · Google ${googleSource === "live" ? formatMoney(summary.googleAdSpend, summary.currency, { compact: true }) : "unavailable"}`}
           />
           <StatTile
             label="Orders"
@@ -176,7 +181,7 @@ export default async function OverviewPage(props: PageProps<"/">) {
             }
             deltaCaption={comparison}
             deltaUnit="points"
-            source={anyLive ? "blend" : "mock"}
+            source={anyLive ? "blend" : "unavailable"}
             footnote={`Contribution margin ${formatPercent(summary.contributionMargin)}`}
           />
         </div>
@@ -288,7 +293,7 @@ function netProfitNote(
     return first ?? "An input is missing, so profit is withheld.";
   }
 
-  if (real.length === 0) return "Every input is mock data.";
+  if (real.length === 0) return "No provider is connected, so every input is zero.";
 
   if (incomplete.length > 0) {
     return `Missing cost data in ${incomplete.join(", ")} — this figure is overstated.`;
@@ -298,5 +303,5 @@ function netProfitNote(
     return "Every input is real — live provider data and configured business costs.";
   }
 
-  return `Real inputs for ${real.length} lines; ${stillMock.join(", ")} still mock — not yet a true P&L.`;
+  return `Real inputs for ${real.length} lines; ${stillMock.join(", ")} not configured and counted as zero.`;
 }
