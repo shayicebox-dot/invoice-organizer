@@ -632,6 +632,7 @@ npm run typecheck  # tsc --noEmit
 npm run test       # node --test
 npm run check      # lint + typecheck + test + build, in that order
 
+npm run verify:meta      # Meta token: validity, expiry, scopes, account, spend
 npm run verify:revenue   # Shopify revenue against Shopify Analytics
 npm run verify:year      # a full year: pagination, mapping and month/year reconciliation
 npm run verify:history   # historical P&L across several past periods
